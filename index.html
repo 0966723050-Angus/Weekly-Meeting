@@ -55,6 +55,11 @@
       <div class="welcome-card">
         <h2>沒有可使用的工作表</h2>
         <p id="deniedMsg"></p>
+        <div id="setupBox" class="setup-box" hidden>
+          <p>建立權限表:每行一位,格式「E-MAIL 工作表」,多個工作表以「、」分隔;「所有工作表」可看全部並管理權限。</p>
+          <textarea id="setupText" rows="7" placeholder="someone@atk.com.tw 所有工作表&#10;other@atk.com.tw 業務部"></textarea>
+          <button id="setupBtn" class="btn btn-primary" type="button">建立權限表並存回雲端</button>
+        </div>
         <button id="deniedSwitch" class="btn btn-ghost" type="button">改用其他帳號登入</button>
       </div>
     </section>

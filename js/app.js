@@ -100,6 +100,9 @@
     $('welcome').hidden = true;
     if (!Object.keys(models).length) {
       $('deniedMsg').textContent = perm.reason || '這個檔案裡找不到週會表單的工作表,請確認選對檔案。';
+      // 一次性設定:網址帶 ?setup=1 且檔案尚無權限表時,可建立權限表
+      $('setupBox').hidden = !(source === 'drive' && !wb.sheetPaths[CFG.PERMISSION_SHEET] &&
+        new URLSearchParams(location.search).get('setup') === '1');
       $('denied').hidden = false;
       $('sheetView').hidden = true;
       $('sheetTabs').hidden = true;
@@ -649,6 +652,37 @@
   });
 
   $('signInBtn').onclick = () => signInAndLoad();
+
+  $('setupBtn').onclick = async () => {
+    const me = String((state.user && state.user.emailAddress) || '').toLowerCase();
+    const rows = [['E-MAIL', '可閱讀及編輯的工作表']];
+    for (const line of $('setupText').value.split(/\r?\n/)) {
+      const m = /^\s*(\S+@\S+)\s+(.+?)\s*$/.exec(line);
+      if (m) rows.push([m[1].toLowerCase(), m[2].replace(/\s+/g, '、')]);
+    }
+    if (rows.length < 2) return toast('請輸入至少一行「E-MAIL 工作表」', 4000);
+    if (!rows.some((r) => r[0] === me && r[1].includes(CFG.ALL_SHEETS_KEYWORD))) {
+      const ok = await confirmDialog('確認', `你(${me})不在「${CFG.ALL_SHEETS_KEYWORD}」名單中,建立後你將無法再管理權限。仍要建立?`,
+        [{ label: '取消', value: false }, { label: '仍要建立', value: true, cls: 'btn-danger' }]);
+      if (!ok) return;
+    }
+    busy('建立權限表…');
+    try {
+      const { bytes } = await Drive.download(state.fileId); // 以最新版為基礎,避免蓋掉他人修改
+      const wb = new Workbook(bytes);
+      if (wb.sheetPaths[CFG.PERMISSION_SHEET]) throw new Error('檔案已經有權限表了,請重新載入');
+      wb.addSheet(CFG.PERMISSION_SHEET, rows, { hidden: true, widths: [30, 40] });
+      const out = wb.toBytes();
+      const meta = await Drive.upload(state.fileId, out);
+      history.replaceState(null, '', location.pathname);
+      loadWorkbook(out, { source: 'drive', name: meta.name, meta });
+      toast('✅ 已建立權限表');
+    } catch (err) {
+      toast('建立失敗:' + (err.message || err), 6000);
+    } finally {
+      busy('');
+    }
+  };
   $('deniedSwitch').onclick = () => { Drive.signOut(); location.reload(); };
   $('localBtn').onclick = () => $('fileInput').click();
   $('fileInput').onchange = (e) => {
