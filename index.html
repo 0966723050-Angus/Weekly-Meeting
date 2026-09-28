@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ATK 週會表單</title>
+<meta name="description" content="ATK 每週幹部週會 Excel 表單的手機編輯工具,直接讀寫 Google 雲端硬碟上的檔案">
+<meta name="theme-color" content="#0f766e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="ATK週會">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="app-header">
+    <button id="menuBtn" class="icon-btn" type="button" aria-label="選單">☰</button>
+    <div class="title-wrap">
+      <h1>ATK 週會表單</h1>
+      <div id="fileLine" class="file-line"></div>
+    </div>
+    <button id="saveBtn" class="btn btn-save" type="button" disabled>
+      <span>儲存</span><span id="dirtyBadge" class="badge" hidden>0</span>
+    </button>
+  </header>
+
+  <nav id="sheetTabs" class="sheet-tabs" hidden></nav>
+
+  <div id="drawerBackdrop" class="backdrop" hidden></div>
+  <aside id="drawer" class="drawer" aria-hidden="true">
+    <div id="userLine" class="drawer-user">尚未登入</div>
+    <button class="drawer-item" data-act="reload" type="button">🔄 從雲端重新載入</button>
+    <button class="drawer-item" data-act="pick" type="button">📂 選擇雲端檔案</button>
+    <button class="drawer-item" data-act="openLocal" type="button">💻 開啟本機 Excel 檔</button>
+    <button class="drawer-item" data-act="download" type="button">⬇️ 下載目前內容 (.xlsx)</button>
+    <button class="drawer-item" data-act="openDrive" type="button">↗️ 在 Google 雲端開啟</button>
+    <button class="drawer-item danger" data-act="signout" type="button">登出</button>
+    <div class="drawer-foot">資料直接讀寫雲端硬碟上的 Excel 檔;未修改的工作表、格式與下拉選單皆保持原樣。</div>
+  </aside>
+
+  <main id="main">
+    <section id="welcome" class="welcome">
+      <div class="welcome-card">
+        <img src="icons/icon.svg" alt="" width="64" height="64">
+        <h2>每週一 09:30 幹部週會</h2>
+        <p>以公司 Google 帳號登入後,即可在手機上檢視、編輯、新增或刪除週會表單的資料列,並直接存回雲端硬碟。</p>
+        <button id="signInBtn" class="btn btn-primary btn-lg" type="button">使用 Google 帳號登入</button>
+        <button id="localBtn" class="btn btn-ghost" type="button">或開啟本機 Excel 檔</button>
+        <p class="hint">第一次登入時,請在跳出的檔案選擇視窗中選取 ATK 工作區的 <b>weekly_meeting_template_生管.xlsx</b>(只授權本工具存取這一個檔案)。</p>
+      </div>
+    </section>
+
+    <section id="sheetView" hidden>
+      <div class="filter-bar">
+        <select id="weekFilter" aria-label="週次"></select>
+        <input id="searchBox" type="search" placeholder="搜尋專案、負責人、內容…" aria-label="搜尋">
+      </div>
+      <div id="countLine" class="count-line"></div>
+      <div id="cardList" class="card-list"></div>
+      <div id="emptyState" class="empty" hidden>沒有符合的資料列</div>
+    </section>
+  </main>
+
+  <button id="addBtn" class="fab" type="button" hidden aria-label="新增一列">＋ 新增一列</button>
+
+  <!-- 列動作選單 -->
+  <div id="actionSheet" class="sheet-overlay" hidden>
+    <div class="action-sheet" role="menu">
+      <div id="actionTitle" class="action-title"></div>
+      <button type="button" data-row-act="edit">✏️ 編輯</button>
+      <button type="button" data-row-act="above">⬆️ 在上方插入一列</button>
+      <button type="button" data-row-act="below">⬇️ 在下方插入一列</button>
+      <button type="button" data-row-act="carry" id="carryBtn">📋 複製為本週的新列</button>
+      <button type="button" data-row-act="delete" class="danger">🗑️ 刪除此列</button>
+      <button type="button" data-row-act="cancel" class="cancel">取消</button>
+    </div>
+  </div>
+
+  <!-- 編輯表單 -->
+  <div id="editor" class="editor-overlay" hidden>
+    <form id="editorForm" class="editor" autocomplete="off">
+      <header class="editor-head">
+        <button type="button" class="icon-btn" id="editorCancel" aria-label="取消">✕</button>
+        <h2 id="editorTitle">編輯</h2>
+        <button type="submit" class="btn btn-primary btn-sm">完成</button>
+      </header>
+      <div id="editorFields" class="editor-fields"></div>
+      <div class="editor-foot">
+        <button type="button" id="editorDelete" class="btn btn-danger-ghost">刪除此列</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- 確認對話框 -->
+  <div id="confirmBox" class="sheet-overlay center" hidden>
+    <div class="dialog">
+      <h3 id="confirmTitle"></h3>
+      <p id="confirmMsg"></p>
+      <div id="confirmBtns" class="dialog-btns"></div>
+    </div>
+  </div>
+
+  <div id="busy" class="busy" hidden><div class="spinner"></div><div id="busyMsg">處理中…</div></div>
+  <div id="toast" class="toast" role="status"></div>
+  <input id="fileInput" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
+
+  <script src="https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.js"></script>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="https://apis.google.com/js/api.js" async defer></script>
+  <script src="js/config.js"></script>
+  <script src="js/xlsx-model.js"></script>
+  <script src="js/drive.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
