@@ -54,21 +54,62 @@
     return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 
+  // ---------- 權限 ----------
+  // 回傳 { all, sheets:Set, reason };本機檔案一律完整權限
+  function resolvePermissions(wb) {
+    if (state.source === 'local') return { all: true, sheets: null };
+    const email = String((state.user && state.user.emailAddress) || '').trim().toLowerCase();
+    if (!email) return { all: false, sheets: new Set(), reason: '無法取得登入帳號,請重新登入。' };
+    if (!wb.sheetPaths[CFG.PERMISSION_SHEET]) {
+      return { all: false, sheets: new Set(), reason: `這個檔案尚未設定權限(缺少「${CFG.PERMISSION_SHEET}」工作表),請聯絡管理者。` };
+    }
+    const pm = wb.readSheet({ name: CFG.PERMISSION_SHEET, headerRow: 1 });
+    const [emailCol, sheetCol] = pm.columns;
+    const label = {};
+    for (const c of CFG.SHEETS) { label[c.name] = c.name; if (c.label) label[c.label] = c.name; }
+    let all = false;
+    const sheets = new Set();
+    for (const rec of pm.records) {
+      if (!emailCol || String(rec.vals[emailCol.idx] || '').trim().toLowerCase() !== email) continue;
+      for (const part of String((sheetCol && rec.vals[sheetCol.idx]) || '').split(/[,，、;；\n]+/)) {
+        const t = part.trim();
+        if (!t) continue;
+        if (t === CFG.ALL_SHEETS_KEYWORD) all = true;
+        else sheets.add(label[t] || t);
+      }
+    }
+    if (all) return { all: true, sheets: null };
+    return { all: false, sheets, reason: sheets.size ? '' : `帳號 ${email} 沒有任何工作表的權限,請聯絡管理者。` };
+  }
+
   // ---------- 載入 ----------
   function loadWorkbook(bytes, { source, name, meta }) {
     const wb = new Workbook(bytes);
+    state.source = source;
+    const perm = resolvePermissions(wb);
     const models = {};
     for (const cfg of CFG.SHEETS) {
       if (!wb.sheetPaths[cfg.name]) continue;
+      if (cfg.adminOnly ? !perm.all : !(perm.all || perm.sheets.has(cfg.name))) continue;
       const m = wb.readSheet(cfg);
       m.roles = detectRoles(m.columns);
       models[cfg.name] = m;
     }
-    if (!Object.keys(models).length) throw new Error('這個檔案裡找不到週會表單的工作表,請確認選對檔案');
-    Object.assign(state, { wb, models, source, fileName: name, meta, origSst: wb.text('xl/sharedStrings.xml') });
+    Object.assign(state, { wb, models, source, fileName: name, meta, perm, origSst: wb.text('xl/sharedStrings.xml') });
+    $('downloadItem').hidden = !perm.all;
+    $('welcome').hidden = true;
+    if (!Object.keys(models).length) {
+      $('deniedMsg').textContent = perm.reason || '這個檔案裡找不到週會表單的工作表,請確認選對檔案。';
+      $('denied').hidden = false;
+      $('sheetView').hidden = true;
+      $('sheetTabs').hidden = true;
+      $('addBtn').hidden = true;
+      updateHeader();
+      return;
+    }
+    $('denied').hidden = true;
     const last = lsGet(LS_SHEET);
     state.current = models[state.current] ? state.current : models[last] ? last : models[CFG.DEFAULT_SHEET] ? CFG.DEFAULT_SHEET : Object.keys(models)[0];
-    $('welcome').hidden = true;
     $('sheetView').hidden = false;
     $('sheetTabs').hidden = false;
     $('addBtn').hidden = false;
@@ -98,7 +139,7 @@
     try {
       busy('登入 Google…');
       await Drive.ensureToken();
-      Drive.whoAmI().then((u) => { state.user = u; updateHeader(); }).catch(() => {});
+      state.user = await Drive.whoAmI().catch(() => null); // 權限判斷需要登入者 email
       let fileId = forcePick ? '' : Drive.getFileId();
       if (!fileId) { busy(''); fileId = await Drive.pickFile(); }
       await loadFromDrive(fileId);
@@ -608,6 +649,7 @@
   });
 
   $('signInBtn').onclick = () => signInAndLoad();
+  $('deniedSwitch').onclick = () => { Drive.signOut(); location.reload(); };
   $('localBtn').onclick = () => $('fileInput').click();
   $('fileInput').onchange = (e) => {
     const f = e.target.files && e.target.files[0];

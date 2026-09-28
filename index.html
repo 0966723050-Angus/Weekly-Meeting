@@ -33,7 +33,7 @@
     <button class="drawer-item" data-act="reload" type="button">🔄 從雲端重新載入</button>
     <button class="drawer-item" data-act="pick" type="button">📂 選擇雲端檔案</button>
     <button class="drawer-item" data-act="openLocal" type="button">💻 開啟本機 Excel 檔</button>
-    <button class="drawer-item" data-act="download" type="button">⬇️ 下載目前內容 (.xlsx)</button>
+    <button class="drawer-item" data-act="download" id="downloadItem" type="button">⬇️ 下載目前內容 (.xlsx)</button>
     <button class="drawer-item" data-act="openDrive" type="button">↗️ 在 Google 雲端開啟</button>
     <button class="drawer-item danger" data-act="signout" type="button">登出</button>
     <div class="drawer-foot">資料直接讀寫雲端硬碟上的 Excel 檔;未修改的工作表、格式與下拉選單皆保持原樣。</div>
@@ -48,6 +48,14 @@
         <button id="signInBtn" class="btn btn-primary btn-lg" type="button">使用 Google 帳號登入</button>
         <button id="localBtn" class="btn btn-ghost" type="button">或開啟本機 Excel 檔</button>
         <p class="hint">第一次登入時,請在跳出的檔案選擇視窗中選取 ATK 工作區的 <b>weekly_meeting_template_生管.xlsx</b>(只授權本工具存取這一個檔案)。</p>
+      </div>
+    </section>
+
+    <section id="denied" class="welcome" hidden>
+      <div class="welcome-card">
+        <h2>沒有可使用的工作表</h2>
+        <p id="deniedMsg"></p>
+        <button id="deniedSwitch" class="btn btn-ghost" type="button">改用其他帳號登入</button>
       </div>
     </section>
 

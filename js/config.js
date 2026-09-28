@@ -28,6 +28,12 @@ window.APP_CONFIG = {
     { name: '總表', headerRow: 5, maxRow: 13 },
     { name: '行動追蹤', headerRow: 3 },
     { name: '專案主檔', headerRow: 3 },
+    { name: '權限', headerRow: 1, adminOnly: true },
   ],
+
+  // 個人權限表:檔案內的隱藏工作表(email 不寫在公開的程式碼裡)
+  // A 欄 E-MAIL,B 欄 可閱讀及編輯的工作表(以「、」或逗號分隔,「所有工作表」= 全部並可管理權限)
+  PERMISSION_SHEET: '權限',
+  ALL_SHEETS_KEYWORD: '所有工作表',
   DEFAULT_SHEET: '生管部',
 };
