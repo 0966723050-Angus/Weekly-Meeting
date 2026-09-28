@@ -47,7 +47,7 @@
 
 API 金鑰(僅 Google Picker 使用)**不放在原始碼**:存於 GitHub Secret `GOOGLE_API_KEY`,
 由 `.github/workflows/pages.yml` 部署時注入(GitHub Pages 來源設為 GitHub Actions)。
-建議此金鑰限制為:API 僅「Google Picker API」、網站限制 `https://0966723050-angus.github.io/Weekly-Meeting/*`。
+金鑰限制:API「Google Picker API」+「Google Drive API」、網站 `https://0966723050-angus.github.io/*`(Picker 驗證時只帶網域,不可限制到子路徑)。
 
 權限範圍 `drive.file`:只能存取使用者在 Google Picker 中選取的那一個檔案。
 每位使用者第一次登入時需在 Picker 中選一次檔案,之後會記住。
