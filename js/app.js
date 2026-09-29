@@ -415,13 +415,25 @@
       try { await loadFromDrive(key); } catch { /* 下載失敗就用本檔清單 */ }
     }
     const src = state.files[key];
-    const list = src && src.wb.sheetPaths[CFG.PROJECT_SOURCE.sheet] ? src.wb.rangeValues(CFG.PROJECT_SOURCE.range) : [];
+    let list = [];
+    const pm = src && src.models[CFG.PROJECT_SOURCE.sheet];
+    const nameCol = pm && pm.columns.find(isProjectCol);
+    if (nameCol) {
+      // 已載入可編輯的專案主檔 → 直接用(含尚未儲存的新增/修改)
+      for (const r of pm.records) {
+        const v = String(r.vals[nameCol.idx] ?? '').trim();
+        if (!r.blank && v && !list.includes(v)) list.push(v);
+      }
+    } else if (src && src.wb.sheetPaths[CFG.PROJECT_SOURCE.sheet]) {
+      list = src.wb.rangeValues(CFG.PROJECT_SOURCE.range);
+    }
     return list.length ? list : (col.options || []);
   }
 
   async function openEditor(rec, insertAt) {
     const m = model();
-    const projCol = m.columns.find(isProjectCol);
+    // 「專案主檔」本身是選單來源,其專案名稱要能自由輸入
+    const projCol = m.name === CFG.PROJECT_SOURCE.sheet ? null : m.columns.find(isProjectCol);
     const projList = projCol ? await projectOptions(projCol) : [];
     editing = { rec, insertAt };
     const isNew = insertAt != null;
