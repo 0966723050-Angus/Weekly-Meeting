@@ -32,5 +32,9 @@ window.APP_CONFIG = {
 
   // 彙整輸出檔名(存在生管部檔案所在的雲端資料夾)
   SUMMARY_NAME: '各部工作彙整',
+
+  // 「匯出彙整 PDF」存到本機的檔名與建議資料夾(資料夾由使用者第一次匯出時選擇,之後記住)
+  EXPORT_NAME: '本週會議重點',
+  EXPORT_DIR_HINT: 'C:\\ATK\\週會\\彙整',
   DEFAULT_SHEET: '生管部',
 };

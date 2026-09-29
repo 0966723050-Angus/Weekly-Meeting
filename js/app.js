@@ -699,7 +699,7 @@
         { label: '關閉', value: false },
         { label: '匯出 PDF', value: true, cls: 'btn-primary' },
       ]);
-      if (dl) downloadBytes(pdf, CFG.SUMMARY_NAME + '.pdf', 'application/pdf');
+      if (dl) await exportPdf(pdf);
     } catch (err) {
       toast('彙整失敗:' + (err.message || err), 6000);
     } finally {
@@ -707,18 +707,94 @@
     }
   }
 
-  async function exportPdf() {
+  // ---------- 匯出 PDF 到本機資料夾 ----------
+  // 電腦版 Chrome/Edge:第一次選擇資料夾(C:\ATK\週會\彙整),之後記住並直接覆寫「本週會議重點.pdf」
+  // 不支援的瀏覽器(例如 iPhone)改為下載同名檔案
+  function idb(mode, fn) {
+    return new Promise((resolve, reject) => {
+      const open = indexedDB.open('weekly-meeting', 1);
+      open.onupgradeneeded = () => open.result.createObjectStore('kv');
+      open.onerror = () => reject(open.error);
+      open.onsuccess = () => {
+        try {
+          const tx = open.result.transaction('kv', mode);
+          const req = fn(tx.objectStore('kv'));
+          tx.oncomplete = () => resolve(req && req.result);
+          tx.onerror = () => reject(tx.error);
+          tx.onabort = () => reject(tx.error);
+        } catch (err) {
+          reject(err);
+        }
+      };
+    });
+  }
+  const idbGet = (k) => idb('readonly', (st) => st.get(k)).catch(() => null);
+  const idbSet = (k, v) => idb('readwrite', (st) => st.put(v, k)).catch(() => {});
+  const canWriteFolder = () => typeof window.showDirectoryPicker === 'function';
+
+  // 取得可寫入的匯出資料夾;必須在使用者點擊後立即呼叫(瀏覽器要求)
+  async function getExportDir(forcePick = false) {
+    if (!canWriteFolder()) return null;
+    let dir = forcePick ? null : await idbGet('exportDir');
+    if (dir) {
+      let perm = await dir.queryPermission({ mode: 'readwrite' });
+      if (perm !== 'granted') perm = await dir.requestPermission({ mode: 'readwrite' });
+      if (perm === 'granted') return dir;
+    }
+    toast(`請選擇匯出資料夾:${CFG.EXPORT_DIR_HINT}`, 6000);
+    dir = await window.showDirectoryPicker({ id: 'wm-export', mode: 'readwrite', startIn: 'documents' });
+    await idbSet('exportDir', dir);
+    return dir;
+  }
+
+  // 寫入 PDF;回傳顯示用的位置文字
+  async function savePdfLocal(bytes, dir) {
+    const name = CFG.EXPORT_NAME + '.pdf';
+    if (!dir) {
+      downloadBytes(bytes, name, 'application/pdf');
+      return `已下載「${name}」`;
+    }
+    const fh = await dir.getFileHandle(name, { create: true });
+    const w = await fh.createWritable();
+    await w.write(bytes);
+    await w.close();
+    return `已匯出到「${dir.name}\\${name}」`;
+  }
+
+  // pdfBytes 已有時直接寫;否則從雲端下載最新的彙整 PDF
+  async function exportPdf(pdfBytes) {
     if (state.source !== 'drive') return toast('請先登入');
-    busy('下載彙整 PDF…');
+    let dir = null;
     try {
-      const f = await Drive.findByName(CFG.SUMMARY_NAME + '.pdf');
-      if (!f) { busy(''); return toast('雲端硬碟還沒有彙整 PDF,請先按「彙整」', 4000); }
-      const bytes = await Drive.downloadRaw(f.id);
-      downloadBytes(new Uint8Array(bytes), CFG.SUMMARY_NAME + '.pdf', 'application/pdf');
+      dir = await getExportDir();
+    } catch (err) {
+      if (err && err.name === 'AbortError') return toast('已取消匯出');
+      dir = null; // 無法使用資料夾寫入 → 改下載
+    }
+    try {
+      let bytes = pdfBytes instanceof Uint8Array ? pdfBytes : null;
+      if (!bytes) {
+        busy('下載彙整 PDF…');
+        const f = await Drive.findByName(CFG.SUMMARY_NAME + '.pdf');
+        if (!f) { busy(''); return toast('雲端硬碟還沒有彙整 PDF,請先按「彙整」', 4000); }
+        bytes = new Uint8Array(await Drive.downloadRaw(f.id));
+      }
+      busy('');
+      toast('✅ ' + await savePdfLocal(bytes, dir), 5000);
     } catch (err) {
       toast('匯出失敗:' + (err.message || err), 6000);
     } finally {
       busy('');
+    }
+  }
+
+  async function changeExportDir() {
+    if (!canWriteFolder()) return toast('此瀏覽器不支援指定資料夾,匯出時會直接下載');
+    try {
+      const dir = await getExportDir(true);
+      toast(`匯出資料夾已設為「${dir.name}」`, 4000);
+    } catch (err) {
+      if (!(err && err.name === 'AbortError')) toast('設定失敗:' + (err.message || err), 5000);
     }
   }
   // ---------- 校正 ----------
@@ -806,7 +882,7 @@
 
   $('summaryBtn').onclick = runSummary;
   $('calibrateBtn').onclick = runCalibrate;
-  $('exportPdfBtn').onclick = exportPdf;
+  $('exportPdfBtn').onclick = () => exportPdf();
 
   // ---------- 選單 ----------
   function toggleDrawer(open) {
@@ -846,7 +922,8 @@
       if (state.source === 'local') return toast('本機檔案模式請重新開啟檔案');
       state.files = {}; // 全部重新下載
       signInAndLoad();
-    } else if (act === 'openLocal') $('fileInput').click();
+    } else if (act === 'exportDir') changeExportDir();
+    else if (act === 'openLocal') $('fileInput').click();
     else if (act === 'signout') {
       Drive.signOut();
       location.reload();

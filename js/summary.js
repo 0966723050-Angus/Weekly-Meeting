@@ -1,6 +1,6 @@
 // summary.js - 各部工作彙整
 // 依「C:\ATK\週會\彙整\Excel彙整\各部工作彙整.xlsx」的格式:單一工作表「彙整」、欄位 A~L、
-// 部門依序排列、每個部門取最新一週的資料列;A3 直印、寬度縮放為一頁、每頁重複標題列。
+// 部門依序排列、每個部門取最新一週的資料列;Excel 為 A3 直印、寬度縮放為一頁;PDF 為單一長頁。
 (function () {
   const { idxToCol } = window.XlsxModel;
   const te = new TextEncoder();
@@ -106,7 +106,7 @@
     return fflate.zipSync(enc, { level: 6 });
   }
 
-  // ---------- PDF(A3 直印,寬度縮放為一頁,每頁重複標題列)----------
+  // ---------- PDF(單一頁面:頁寬 A3,頁高隨內容)----------
   function loadScript(src) {
     return new Promise((resolve, reject) => {
       if (document.querySelector(`script[src="${src}"]`)) return resolve();
@@ -126,11 +126,10 @@
     await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
     const { jsPDF } = window.jspdf;
 
-    // A3 297×420mm,邊界約 18mm;以 Excel 欄寬比例配置表格寬度
+    // 單頁:頁寬 A3(297mm),頁高依內容延長,所有欄位與資料列在同一頁
     const PAGE_W = 1600;
-    const MARGIN_MM = 18;
+    const MARGIN_MM = 12;
     const contentWmm = 297 - MARGIN_MM * 2;
-    const contentHpx = Math.floor(PAGE_W * (420 - MARGIN_MM * 2) / contentWmm);
     const total = WIDTHS.reduce((a, b) => a + b, 0);
     const colgroup = '<colgroup>' + WIDTHS.map((w) => `<col style="width:${(w / total * 100).toFixed(3)}%">`).join('') + '</colgroup>';
     const css = `font-family:"PMingLiU","MingLiU","PingFang TC","Noto Serif TC","Microsoft JhengHei",serif;font-size:13px;color:#000;`;
@@ -140,36 +139,23 @@
       return `<td style="border:1px solid #000;padding:3px 4px;vertical-align:middle;text-align:${align};word-break:break-word;height:128px;box-sizing:border-box">${text}</td>`;
     };
     const th = HEADERS.map((h) => `<th style="border:1px solid #000;background:#D9EAF7;padding:4px;font-weight:bold;text-align:center">${esc(h)}</th>`).join('');
-    const tableOpen = `<table style="width:100%;border-collapse:collapse;table-layout:fixed;${css}">${colgroup}<thead><tr>${th}</tr></thead><tbody>`;
 
     const host = document.createElement('div');
     host.style.cssText = `position:fixed;left:-99999px;top:0;width:${PAGE_W}px;background:#fff`;
     document.body.appendChild(host);
     try {
-      // 先量測每列高度,再分頁(列不跨頁)
-      host.innerHTML = tableOpen + rows.map((r) => `<tr>${r.map(td).join('')}</tr>`).join('') + '</tbody></table>';
-      const headH = host.querySelector('thead').getBoundingClientRect().height;
-      const heights = [...host.querySelectorAll('tbody tr')].map((tr) => tr.getBoundingClientRect().height);
-      const pages = [];
-      let cur = [], h = headH;
-      rows.forEach((r, i) => {
-        if (cur.length && h + heights[i] > contentHpx) { pages.push(cur); cur = []; h = headH; }
-        cur.push(r); h += heights[i];
-      });
-      if (cur.length || !pages.length) pages.push(cur);
-
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a3', compress: true });
+      host.innerHTML = `<table style="width:100%;border-collapse:collapse;table-layout:fixed;${css}">${colgroup}` +
+        `<thead><tr>${th}</tr></thead><tbody>` + rows.map((r) => `<tr>${r.map(td).join('')}</tr>`).join('') + '</tbody></table>';
+      // 手機瀏覽器的畫布面積上限約 1600 萬像素,資料多時自動降低解析度
+      const hpx = host.getBoundingClientRect().height;
+      const scale = Math.max(0.6, Math.min(1.6, Math.sqrt(15e6 / (PAGE_W * hpx))));
+      const canvas = await html2canvas(host, { scale, backgroundColor: '#ffffff', logging: false });
+      const img = canvas.toDataURL('image/jpeg', 0.8);
+      const hmm = canvas.height / canvas.width * contentWmm;
+      const pageH = Math.max(hmm + MARGIN_MM * 2, 100);
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [297, pageH], compress: true });
       pdf.setProperties({ title });
-      for (let p = 0; p < pages.length; p++) {
-        host.innerHTML = tableOpen + pages[p].map((r) => `<tr>${r.map(td).join('')}</tr>`).join('') + '</tbody></table>';
-        const canvas = await html2canvas(host, { scale: 1.6, backgroundColor: '#ffffff', logging: false });
-        const img = canvas.toDataURL('image/jpeg', 0.8);
-        const hmm = canvas.height / canvas.width * contentWmm;
-        if (p) pdf.addPage('a3', 'portrait');
-        pdf.addImage(img, 'JPEG', MARGIN_MM, MARGIN_MM, contentWmm, hmm);
-        pdf.setFontSize(9);
-        pdf.text(`${p + 1} / ${pages.length}`, 297 / 2, 420 - 8, { align: 'center' });
-      }
+      pdf.addImage(img, 'JPEG', MARGIN_MM, MARGIN_MM, contentWmm, hmm);
       return new Uint8Array(pdf.output('arraybuffer'));
     } finally {
       host.remove();
