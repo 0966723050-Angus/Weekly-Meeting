@@ -7,16 +7,16 @@
 
   const state = {
     source: null,        // 'drive' | 'local'
-    fileId: null,
-    fileName: '',
-    meta: null,          // Drive 檔案資訊(version 用於偵測他人更新)
-    wb: null,
-    origSst: null,
-    models: {},          // sheetName -> model
+    access: {},          // 檔案代號(部門) -> { id, name }:此帳號可存取的雲端檔案
+    files: {},           // 檔案代號 -> { key, fileId, name, meta, wb, origSst, models }
     current: null,       // 目前工作表名稱
     user: null,
     seq: 0,
   };
+  const sheetCfg = (name) => CFG.SHEETS.find((c) => c.name === name);
+  // 工作表所屬的檔案代號;本機模式只有一個檔案
+  const fileKeyOf = (name) => (state.source === 'local' ? 'local' : sheetCfg(name).file);
+  const curFile = () => state.files[fileKeyOf(state.current)];
 
   // ---------- 共用 UI ----------
   let toastTimer;
@@ -54,68 +54,65 @@
     return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 
-  // ---------- 權限 ----------
-  // 回傳 { all, sheets:Set, reason };本機檔案一律完整權限
-  function resolvePermissions(wb) {
-    if (state.source === 'local') return { all: true, sheets: null };
-    const email = String((state.user && state.user.emailAddress) || '').trim().toLowerCase();
-    if (!email) return { all: false, sheets: new Set(), reason: '無法取得登入帳號,請重新登入。' };
-    if (!wb.sheetPaths[CFG.PERMISSION_SHEET]) {
-      return { all: false, sheets: new Set(), reason: `這個檔案尚未設定權限(缺少「${CFG.PERMISSION_SHEET}」工作表),請聯絡管理者。` };
-    }
-    const pm = wb.readSheet({ name: CFG.PERMISSION_SHEET, headerRow: 1 });
-    const [emailCol, sheetCol] = pm.columns;
-    const label = {};
-    for (const c of CFG.SHEETS) { label[c.name] = c.name; if (c.label) label[c.label] = c.name; }
-    let all = false;
-    const sheets = new Set();
-    for (const rec of pm.records) {
-      if (!emailCol || String(rec.vals[emailCol.idx] || '').trim().toLowerCase() !== email) continue;
-      for (const part of String((sheetCol && rec.vals[sheetCol.idx]) || '').split(/[,，、;；\n]+/)) {
-        const t = part.trim();
-        if (!t) continue;
-        if (t === CFG.ALL_SHEETS_KEYWORD) all = true;
-        else sheets.add(label[t] || t);
-      }
-    }
-    if (all) return { all: true, sheets: null };
-    return { all: false, sheets, reason: sheets.size ? '' : `帳號 ${email} 沒有任何工作表的權限,請聯絡管理者。` };
-  }
-
   // ---------- 載入 ----------
-  function loadWorkbook(bytes, { source, name, meta }) {
+  // 解析一個檔案,建立其中各工作表的編輯模型
+  function parseFile(key, bytes, { name, meta, fileId }) {
     const wb = new Workbook(bytes);
-    state.source = source;
-    const perm = resolvePermissions(wb);
     const models = {};
     for (const cfg of CFG.SHEETS) {
+      if (key !== 'local' && cfg.file !== key) continue;
       if (!wb.sheetPaths[cfg.name]) continue;
-      if (cfg.adminOnly ? !perm.all : !(perm.all || perm.sheets.has(cfg.name))) continue;
       const m = wb.readSheet(cfg);
       m.roles = detectRoles(m.columns);
       models[cfg.name] = m;
     }
-    Object.assign(state, { wb, models, source, fileName: name, meta, perm, origSst: wb.text('xl/sharedStrings.xml') });
-    $('downloadItem').hidden = !perm.all;
+    state.files[key] = { key, fileId, name, meta, wb, models, origSst: wb.text('xl/sharedStrings.xml') };
+    return state.files[key];
+  }
+
+  // 此工作表是否可使用(有權限的檔案裡確實有這張表)
+  function sheetAvailable(name) {
+    if (state.source === 'local') return !!(state.files.local && state.files.local.models[name]);
+    const key = sheetCfg(name).file;
+    if (!state.access[key]) return false;
+    const f = state.files[key];
+    return !f || !!f.models[name]; // 尚未下載的檔案先視為可用
+  }
+
+  function showSheets() {
     $('welcome').hidden = true;
-    if (!Object.keys(models).length) {
-      $('deniedMsg').textContent = perm.reason || '這個檔案裡找不到週會表單的工作表,請確認選對檔案。';
-      // 一次性設定:網址帶 ?setup=1 且檔案尚無權限表時,可建立權限表
-      $('setupBox').hidden = !(source === 'drive' && !wb.sheetPaths[CFG.PERMISSION_SHEET] &&
-        new URLSearchParams(location.search).get('setup') === '1');
-      $('denied').hidden = false;
-      $('sheetView').hidden = true;
-      $('sheetTabs').hidden = true;
-      $('addBtn').hidden = true;
+    const any = CFG.SHEETS.some((c) => sheetAvailable(c.name));
+    $('denied').hidden = any;
+    $('sheetView').hidden = !any;
+    $('sheetTabs').hidden = !any;
+    $('addBtn').hidden = !any;
+    if (!any) {
+      $('deniedMsg').textContent = state.user
+        ? `帳號 ${state.user.emailAddress} 沒有可使用的週會檔案。若檔案已共用給你,請從選單「選擇雲端檔案」選取。`
+        : '找不到週會表單的工作表,請確認選對檔案。';
       updateHeader();
       return;
     }
-    $('denied').hidden = true;
     const last = lsGet(LS_SHEET);
-    state.current = models[state.current] ? state.current : models[last] ? last : models[CFG.DEFAULT_SHEET] ? CFG.DEFAULT_SHEET : Object.keys(models)[0];
-    $('sheetView').hidden = false;
-    $('sheetTabs').hidden = false;
-    $('addBtn').hidden = false;
+    const pick = [state.current, last, CFG.DEFAULT_SHEET, ...CFG.SHEETS.map((c) => c.name)]
+      .find((n) => n && sheetCfg(n) && sheetAvailable(n));
+    switchSheet(pick);
+  }
+
+  // 切換分頁;所屬檔案尚未下載時先下載
+  async function switchSheet(name) {
+    if (!sheetAvailable(name)) return;
+    const key = fileKeyOf(name);
+    if (!state.files[key]) {
+      try { await loadFromDrive(key); } catch (err) { toast(err.message || String(err), 5000); return; }
+      if (!state.files[key].models[name]) {
+        renderTabs();
+        toast(`「${state.access[key].name}」裡沒有「${name}」工作表`, 4000);
+        return;
+      }
+    }
+    state.current = name;
+    lsSet(LS_SHEET, name);
     renderTabs();
     renderSheet(true);
     updateHeader();
@@ -142,33 +139,35 @@
     try {
       busy('登入 Google…');
       await Drive.ensureToken();
-      state.user = await Drive.whoAmI().catch(() => null); // 權限判斷需要登入者 email
-      let fileId = forcePick ? '' : Drive.getFileId();
-      if (!fileId) { busy(''); fileId = await Drive.pickFile(); }
-      await loadFromDrive(fileId);
+      state.user = await Drive.whoAmI().catch(() => null);
+      busy('尋找週會檔案…');
+      let access = await Drive.listWeeklyFiles();
+      if (forcePick || !Object.keys(access).length) {
+        // 第一次使用(或要加選):用 Picker 選取自己有權限的週會檔案,授權本網站存取
+        busy('');
+        await Drive.pickFiles();
+        busy('尋找週會檔案…');
+        access = await Drive.listWeeklyFiles();
+      }
+      if (state.source !== 'drive') state.files = {};
+      state.source = 'drive';
+      // 已下載但不再可存取的檔案移除
+      for (const k of Object.keys(state.files)) if (!access[k]) delete state.files[k];
+      state.access = access;
+      busy('');
+      showSheets();
     } catch (err) {
       busy('');
       toast(err.message || String(err), 5000);
     }
   }
 
-  async function loadFromDrive(fileId) {
-    busy('下載檔案中…');
+  async function loadFromDrive(key) {
+    const info = state.access[key];
+    busy(`下載「${info.name}」…`);
     try {
-      const { meta, bytes } = await Drive.download(fileId);
-      state.fileId = fileId;
-      loadWorkbook(bytes, { source: 'drive', name: meta.name, meta });
-      toast(`已載入「${meta.name}」`);
-    } catch (err) {
-      if (err.status === 404 || err.status === 403) {
-        // 這個帳號尚未透過 Picker 授權此檔 → 重新選檔
-        Drive.forgetFile();
-        busy('');
-        toast('請重新選取檔案以授權存取', 4000);
-        const id = await Drive.pickFile();
-        return loadFromDrive(id);
-      }
-      throw err;
+      const { meta, bytes } = await Drive.download(info.id);
+      parseFile(key, bytes, { name: meta.name, meta, fileId: info.id });
     } finally {
       busy('');
     }
@@ -178,8 +177,12 @@
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        state.fileId = null;
-        loadWorkbook(reader.result, { source: 'local', name: file.name, meta: null });
+        state.source = 'local';
+        state.access = {};
+        state.files = {};
+        state.current = null;
+        parseFile('local', reader.result, { name: file.name, meta: null, fileId: null });
+        showSheets();
         toast(`已開啟本機檔案「${file.name}」;按「下載」取得修改後的檔案`, 4000);
       } catch (err) {
         toast('無法讀取檔案:' + err.message, 5000);
@@ -189,46 +192,47 @@
   }
 
   // ---------- 頁首 / 分頁 ----------
+  const fileDirty = (f) => Object.values(f.models).reduce((n, m) => n + (m.changeCount || 0), 0);
   function dirtyCount() {
-    return Object.values(state.models).reduce((n, m) => n + (m.changeCount || 0), 0);
+    return Object.values(state.files).reduce((n, f) => n + fileDirty(f), 0);
   }
   function updateHeader() {
     const n = dirtyCount();
     const badge = $('dirtyBadge');
     badge.hidden = n === 0;
     badge.textContent = n;
-    $('saveBtn').disabled = !state.wb || (n === 0 && state.source === 'drive');
+    const f = state.current && state.files[fileKeyOf(state.current)];
+    $('saveBtn').disabled = !f || (n === 0 && state.source === 'drive');
     $('saveBtn').firstElementChild.textContent = state.source === 'local' ? '下載' : '儲存';
-    let line = state.fileName || '';
-    if (state.meta && state.meta.modifiedTime) {
-      const d = new Date(state.meta.modifiedTime);
+    let line = f ? f.name : '';
+    if (f && f.meta && f.meta.modifiedTime) {
+      const d = new Date(f.meta.modifiedTime);
       line += ` · ${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} 更新`;
     }
     if (state.source === 'local') line += ' · 本機檔案';
     $('fileLine').textContent = line;
     $('userLine').textContent = state.user ? `${state.user.displayName}\n${state.user.emailAddress}` : (state.source === 'local' ? '本機檔案模式' : '尚未登入');
     for (const tab of $('sheetTabs').children) {
-      const m = state.models[tab.dataset.sheet];
+      const tf = state.files[fileKeyOf(tab.dataset.sheet)];
+      const m = tf && tf.models[tab.dataset.sheet];
       tab.classList.toggle('dirty', !!(m && m.changeCount));
     }
   }
 
+  // 所有分頁都列出;沒有權限的反白(灰色、不可點)
   function renderTabs() {
     const nav = $('sheetTabs');
     nav.innerHTML = '';
     for (const cfg of CFG.SHEETS) {
-      if (!state.models[cfg.name]) continue;
+      const ok = sheetAvailable(cfg.name);
       const b = document.createElement('button');
       b.type = 'button';
-      b.className = 'tab' + (cfg.name === state.current ? ' active' : '');
+      b.className = 'tab' + (cfg.name === state.current ? ' active' : '') + (ok ? '' : ' locked');
       b.dataset.sheet = cfg.name;
       b.textContent = cfg.label || cfg.name;
-      b.onclick = () => {
-        state.current = cfg.name;
-        lsSet(LS_SHEET, cfg.name);
-        for (const t of nav.children) t.classList.toggle('active', t === b);
-        renderSheet(true);
-      };
+      b.disabled = !ok;
+      if (!ok) b.title = '沒有此工作表的權限';
+      b.onclick = () => { if (cfg.name !== state.current) switchSheet(cfg.name); };
       nav.appendChild(b);
     }
     const active = nav.querySelector('.active');
@@ -236,7 +240,7 @@
   }
 
   // ---------- 列表 ----------
-  function model() { return state.models[state.current]; }
+  function model() { return curFile().models[state.current]; }
 
   function valText(col, v) {
     if (v == null || v === '') return '';
@@ -539,8 +543,8 @@
   };
 
   // ---------- 儲存 ----------
-  function buildBytes(targetWb) {
-    for (const m of Object.values(state.models)) if (m.changeCount) targetWb.writeSheet(m);
+  function buildBytes(f, targetWb) {
+    for (const m of Object.values(f.models)) if (m.changeCount) targetWb.writeSheet(m);
     return targetWb.toBytes();
   }
 
@@ -554,52 +558,60 @@
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
   }
 
+  // 儲存單一檔案;回傳 true 表示已存
+  async function saveFile(f) {
+    busy(`檢查「${f.name}」版本…`);
+    let target = f.wb;
+    const latest = await Drive.getMeta(f.fileId);
+    if (f.meta && latest.version !== f.meta.version) {
+      busy('檔案已被他人更新,檢查是否可合併…');
+      const { bytes } = await Drive.download(f.fileId);
+      const fresh = new Workbook(bytes);
+      const dirtyModels = Object.values(f.models).filter((m) => m.changeCount);
+      const safe = fresh.text('xl/sharedStrings.xml') === f.origSst &&
+        dirtyModels.every((m) => fresh.text(m.path) === m.origDataXml);
+      if (safe) {
+        target = fresh; // 對方改的是其他工作表 → 套用我的修改到最新版
+      } else {
+        busy('');
+        const who = (latest.lastModifyingUser && latest.lastModifyingUser.displayName) || '其他人';
+        const t = new Date(latest.modifiedTime);
+        const choice = await confirmDialog(`「${f.name}」已被他人修改`,
+          `${who} 於 ${t.toLocaleString('zh-TW')} 更新了同一個工作表。覆寫會蓋掉對方的修改;建議先記下你的修改,重新載入後再編輯。`,
+          [
+            { label: '取消', value: 'cancel' },
+            { label: '重新載入(放棄我的修改)', value: 'reload' },
+            { label: '仍要覆寫', value: 'overwrite', cls: 'btn-danger' },
+          ]);
+        if (choice === 'reload') { await loadFromDrive(f.key); return false; }
+        if (choice !== 'overwrite') return false;
+      }
+    }
+    busy(`儲存「${f.name}」…`);
+    const bytes = buildBytes(f, new Workbook(target.toBytes()));
+    const meta = await Drive.upload(f.fileId, bytes);
+    parseFile(f.key, bytes, { name: meta.name, meta, fileId: f.fileId });
+    return true;
+  }
+
   async function save() {
-    if (!state.wb) return;
     if (state.source === 'local') {
-      const bytes = buildBytes(new Workbook(state.wb.toBytes()));
-      downloadBytes(bytes, state.fileName);
+      const f = state.files.local;
+      if (f) downloadBytes(buildBytes(f, new Workbook(f.wb.toBytes())), f.name);
       return;
     }
-    if (!dirtyCount()) return;
-    busy('檢查雲端檔案版本…');
+    const dirty = Object.values(state.files).filter((f) => fileDirty(f));
+    if (!dirty.length) return;
+    let saved = 0;
     try {
-      let target = state.wb;
-      const latest = await Drive.getMeta(state.fileId);
-      if (state.meta && latest.version !== state.meta.version) {
-        busy('檔案已被他人更新,檢查是否可合併…');
-        const { bytes, meta } = await Drive.download(state.fileId);
-        const fresh = new Workbook(bytes);
-        const dirtyModels = Object.values(state.models).filter((m) => m.changeCount);
-        const safe = fresh.text('xl/sharedStrings.xml') === state.origSst &&
-          dirtyModels.every((m) => fresh.text(m.path) === m.origDataXml);
-        if (safe) {
-          target = fresh; // 對方改的是其他工作表 → 套用我的修改到最新版
-          state.meta = meta;
-        } else {
-          busy('');
-          const who = (latest.lastModifyingUser && latest.lastModifyingUser.displayName) || '其他人';
-          const t = new Date(latest.modifiedTime);
-          const choice = await confirmDialog('檔案已被他人修改',
-            `${who} 於 ${t.toLocaleString('zh-TW')} 更新了同一個工作表。覆寫會蓋掉對方的修改;建議先記下你的修改,重新載入後再編輯。`,
-            [
-              { label: '取消', value: 'cancel' },
-              { label: '重新載入(放棄我的修改)', value: 'reload' },
-              { label: '仍要覆寫', value: 'overwrite', cls: 'btn-danger' },
-            ]);
-          if (choice === 'reload') { await loadFromDrive(state.fileId); return; }
-          if (choice !== 'overwrite') return;
-        }
-      }
-      busy('儲存到雲端硬碟…');
-      const bytes = buildBytes(new Workbook(target.toBytes()));
-      const meta = await Drive.upload(state.fileId, bytes);
-      loadWorkbook(bytes, { source: 'drive', name: meta.name, meta });
-      toast('✅ 已儲存到雲端硬碟');
+      for (const f of dirty) if (await saveFile(f)) saved++;
+      if (saved) toast(saved === dirty.length ? '✅ 已儲存到雲端硬碟' : `已儲存 ${saved} 個檔案`);
     } catch (err) {
       toast('儲存失敗:' + (err.message || err), 6000);
     } finally {
       busy('');
+      renderTabs();
+      if (curFile()) renderSheet(false);
       updateHeader();
     }
   }
@@ -627,22 +639,22 @@
     if (!b) return;
     toggleDrawer(false);
     const act = b.dataset.act;
+    const f = state.current && state.files[fileKeyOf(state.current)];
     if (act === 'download') {
-      if (!state.wb) return toast('尚未載入檔案');
-      const bytes = buildBytes(new Workbook(state.wb.toBytes()));
-      downloadBytes(bytes, state.fileName);
+      if (!f) return toast('尚未載入檔案');
+      downloadBytes(buildBytes(f, new Workbook(f.wb.toBytes())), f.name);
       return;
     }
     if (act === 'openDrive') {
-      if (state.meta && state.meta.webViewLink) window.open(state.meta.webViewLink, '_blank', 'noopener');
+      if (f && f.meta && f.meta.webViewLink) window.open(f.meta.webViewLink, '_blank', 'noopener');
       else toast('請先登入並載入雲端檔案');
       return;
     }
     if (!(await guardDirty())) return;
     if (act === 'reload') {
-      if (state.source === 'drive' && state.fileId) {
-        try { await loadFromDrive(state.fileId); } catch (err) { toast(err.message, 5000); }
-      } else signInAndLoad();
+      if (state.source === 'local') return toast('本機檔案模式請重新開啟檔案');
+      state.files = {}; // 全部重新下載
+      signInAndLoad();
     } else if (act === 'pick') signInAndLoad({ forcePick: true });
     else if (act === 'openLocal') $('fileInput').click();
     else if (act === 'signout') {
@@ -653,36 +665,6 @@
 
   $('signInBtn').onclick = () => signInAndLoad();
 
-  $('setupBtn').onclick = async () => {
-    const me = String((state.user && state.user.emailAddress) || '').toLowerCase();
-    const rows = [['E-MAIL', '可閱讀及編輯的工作表']];
-    for (const line of $('setupText').value.split(/\r?\n/)) {
-      const m = /^\s*(\S+@\S+)\s+(.+?)\s*$/.exec(line);
-      if (m) rows.push([m[1].toLowerCase(), m[2].replace(/\s+/g, '、')]);
-    }
-    if (rows.length < 2) return toast('請輸入至少一行「E-MAIL 工作表」', 4000);
-    if (!rows.some((r) => r[0] === me && r[1].includes(CFG.ALL_SHEETS_KEYWORD))) {
-      const ok = await confirmDialog('確認', `你(${me})不在「${CFG.ALL_SHEETS_KEYWORD}」名單中,建立後你將無法再管理權限。仍要建立?`,
-        [{ label: '取消', value: false }, { label: '仍要建立', value: true, cls: 'btn-danger' }]);
-      if (!ok) return;
-    }
-    busy('建立權限表…');
-    try {
-      const { bytes } = await Drive.download(state.fileId); // 以最新版為基礎,避免蓋掉他人修改
-      const wb = new Workbook(bytes);
-      if (wb.sheetPaths[CFG.PERMISSION_SHEET]) throw new Error('檔案已經有權限表了,請重新載入');
-      wb.addSheet(CFG.PERMISSION_SHEET, rows, { hidden: true, widths: [30, 40] });
-      const out = wb.toBytes();
-      const meta = await Drive.upload(state.fileId, out);
-      history.replaceState(null, '', location.pathname);
-      loadWorkbook(out, { source: 'drive', name: meta.name, meta });
-      toast('✅ 已建立權限表');
-    } catch (err) {
-      toast('建立失敗:' + (err.message || err), 6000);
-    } finally {
-      busy('');
-    }
-  };
   $('deniedSwitch').onclick = () => { Drive.signOut(); location.reload(); };
   $('localBtn').onclick = () => $('fileInput').click();
   $('fileInput').onchange = (e) => {
@@ -710,5 +692,5 @@
   }
 
   // 測試用掛勾(僅供自動化驗證)
-  window.__wm = { state, loadWorkbook, buildBytes, Workbook };
+  window.__wm = { state, parseFile, showSheets, buildBytes, Workbook };
 })();

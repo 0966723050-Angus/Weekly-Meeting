@@ -1,9 +1,8 @@
 // drive.js
-// Google 登入(drive.file 權限,只能存取使用者用 Picker 選過的檔案)+ Drive 檔案下載/上傳。
+// Google 登入(drive.file 權限,只能存取使用者用 Picker 選過的檔案)+ Drive 檔案列出/下載/上傳。
 // 支援共用雲端硬碟(ATK 工作區),所有呼叫都帶 supportsAllDrives=true。
 (function () {
   const CFG = window.APP_CONFIG;
-  const LS_FILE = 'wm_drive_file_id';
   const LS_HINT = 'wm_login_hint';
   const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
@@ -14,8 +13,6 @@
 
   function lsGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
   function lsSet(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} }
-
-  function getFileId() { return lsGet(LS_FILE) || CFG.DRIVE_FILE_ID || ''; }
 
   function requestToken(prompt) {
     return new Promise((resolve, reject) => {
@@ -78,8 +75,8 @@
     });
   }
 
-  // 讓使用者在 Google Picker 選取週會 Excel 檔(同時授權本網站存取該檔)
-  async function pickFile() {
+  // 讓使用者在 Google Picker 選取週會 Excel 檔(可複選),同時授權本網站存取這些檔案
+  async function pickFiles() {
     if (!CFG.GOOGLE_API_KEY || CFG.GOOGLE_API_KEY.startsWith('__')) {
       throw new Error('網站尚未設定 Google API 金鑰(GitHub Secret GOOGLE_API_KEY),無法開啟檔案選擇視窗');
     }
@@ -88,23 +85,21 @@
     return new Promise((resolve, reject) => {
       const shared = new google.picker.DocsView(google.picker.ViewId.DOCS)
         .setMimeTypes(XLSX_MIME).setEnableDrives(true).setIncludeFolders(true)
-        .setQuery(CFG.FILE_NAME_HINT);
+        .setQuery(CFG.FILE_PREFIX);
       const mine = new google.picker.DocsView(google.picker.ViewId.DOCS)
-        .setMimeTypes(XLSX_MIME).setIncludeFolders(true).setQuery(CFG.FILE_NAME_HINT);
+        .setMimeTypes(XLSX_MIME).setIncludeFolders(true).setQuery(CFG.FILE_PREFIX);
       const picker = new google.picker.PickerBuilder()
         .enableFeature(google.picker.Feature.SUPPORT_DRIVES)
+        .enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
         .setOAuthToken(accessToken)
         .setDeveloperKey(CFG.GOOGLE_API_KEY)
         .setAppId(CFG.GOOGLE_PROJECT_NUMBER)
         .addView(shared)
         .addView(mine)
-        .setTitle('請選擇 ATK 工作區中的 weekly_meeting_template_生管.xlsx')
+        .setTitle('請選取 ATK 工作區中你的週會檔案(可複選)')
         .setCallback((data) => {
           if (data.action === google.picker.Action.PICKED) {
-            const doc = data.docs && data.docs[0];
-            if (!doc) return reject(new Error('未選取檔案'));
-            lsSet(LS_FILE, doc.id);
-            resolve(doc.id);
+            resolve((data.docs || []).map((d) => d.id));
           } else if (data.action === google.picker.Action.CANCEL) {
             reject(new Error('已取消選取檔案'));
           }
@@ -112,6 +107,25 @@
         .build();
       picker.setVisible(true);
     });
+  }
+
+  // 列出本網站可存取(使用者曾用 Picker 選取過且目前仍有權限)的週會檔案
+  // 回傳 { 部門代號: { id, name } },部門代號取自檔名 weekly_meeting_template_<部門>.xlsx
+  async function listWeeklyFiles() {
+    const q = `name contains '${CFG.FILE_PREFIX}' and trashed = false`;
+    const base = 'https://www.googleapis.com/drive/v3/files?supportsAllDrives=true&includeItemsFromAllDrives=true' +
+      `&pageSize=100&orderBy=modifiedTime desc&fields=${encodeURIComponent('files(id,name,modifiedTime)')}&q=${encodeURIComponent(q)}`;
+    let resp = await api(base + '&corpora=allDrives');
+    if (!resp.ok) resp = await api(base); // 部分帳號不支援 allDrives,改用預設範圍
+    if (!resp.ok) throw await apiError(resp, '列出週會檔案');
+    const { files = [] } = await resp.json();
+    const out = {};
+    const re = new RegExp('^' + CFG.FILE_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(.+?)\\.xlsx$', 'i');
+    for (const f of files) {
+      const m = re.exec(f.name);
+      if (m && !out[m[1]]) out[m[1]] = { id: f.id, name: f.name }; // 同名取最近修改的
+    }
+    return out;
   }
 
   const META_FIELDS = 'id,name,version,modifiedTime,lastModifyingUser(displayName,emailAddress),capabilities(canEdit),webViewLink';
@@ -156,7 +170,7 @@
   }
 
   window.Drive = {
-    requestToken, ensureToken, isSignedIn, pickFile, getMeta, download, upload,
-    getFileId, whoAmI, signOut, forgetFile: () => lsSet(LS_FILE, null),
+    requestToken, ensureToken, isSignedIn, pickFiles, listWeeklyFiles, getMeta, download, upload,
+    whoAmI, signOut,
   };
 })();

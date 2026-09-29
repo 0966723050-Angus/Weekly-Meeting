@@ -1,7 +1,7 @@
 # ATK 週會表單(Weekly Meeting)
 
 手機友善的 RWD / PWA 網頁工具,直接編輯 Google 雲端硬碟「ATK」工作區中的
-`weekly_meeting_template_生管.xlsx`。
+各部門週會檔案 `weekly_meeting_template_<部門>.xlsx`(生管部、業務部、機構設計、電氣設計、管理部)。
 
 ## 功能
 
@@ -14,14 +14,23 @@
 - 按「儲存」寫回雲端硬碟;未儲存的修改以橘色標示
 - 也可開啟本機 Excel 檔,修改後下載
 
-## 個人權限
+## 權限(由雲端硬碟共用設定決定)
 
-檔案內的隱藏工作表「權限」決定每個帳號在 App 中可閱讀及編輯的工作表
-(A 欄 E-MAIL、B 欄工作表名稱,以「、」分隔;「所有工作表」= 全部並可在 App 內管理「權限」表)。
-未列在表中的帳號無法使用。email 不寫在公開的程式碼中。
+每個部門一個檔案,誰能開哪個檔案完全由 Google 雲端硬碟的共用權限控制,App 內不存任何名單。
 
-注意:這是 App 介面層的限制。Google 雲端硬碟的共用權限以整個檔案為單位,
-具有檔案編輯權的人直接以 Excel / 雲端硬碟開啟仍可看到所有工作表。
+| 分頁 | 所屬檔案 |
+|---|---|
+| 生管部、總表、行動追蹤、專案主檔 | weekly_meeting_template_生管部.xlsx |
+| 業務部 | weekly_meeting_template_業務部.xlsx |
+| 機構設計 | weekly_meeting_template_機構設計.xlsx |
+| 電氣設計 | weekly_meeting_template_電氣設計.xlsx |
+| 管理部、太陽能 | weekly_meeting_template_管理部.xlsx |
+
+- 登入後 App 列出「此帳號有權限且曾在 Picker 選取過」的週會檔案(依檔名對應部門);
+  沒有權限的分頁反白、不可點。點分頁時才下載所屬檔案。
+- 第一次登入會跳出 Picker,請選取自己的週會檔案(可複選);之後換裝置也不必再選。
+  新增共用的檔案可從選單「選擇雲端檔案(加選)」加入。
+- 一次修改多個檔案時,按「儲存」會逐一存回各自的檔案。
 
 ## 寫入方式(為什麼不會弄壞 Excel)
 
@@ -35,7 +44,7 @@
 ## 多人同時編輯
 
 儲存前會比對雲端檔案版本:
-- 對方改的是其他工作表 → 自動合併(把我的修改套到最新版)
+- 對方改的是同檔案的其他工作表 → 自動合併(把我的修改套到最新版)
 - 對方也改了同一工作表 → 跳出提示,可選「重新載入」或「仍要覆寫」
 
 注意:若有人在電腦上用 Excel 開著同步資料夾中的同一檔案,Excel 存檔時仍可能覆蓋網頁上的修改。
@@ -49,10 +58,7 @@ API 金鑰(僅 Google Picker 使用)**不放在原始碼**:存於 GitHub Secret 
 由 `.github/workflows/pages.yml` 部署時注入(GitHub Pages 來源設為 GitHub Actions)。
 金鑰限制:API「Google Picker API」+「Google Drive API」、網站 `https://0966723050-angus.github.io/*`(Picker 驗證時只帶網域,不可限制到子路徑)。
 
-權限範圍 `drive.file`:只能存取使用者在 Google Picker 中選取的那一個檔案。
-每位使用者第一次登入時需在 Picker 中選一次檔案,之後會記住。
-
-若要免選檔,可把檔案 ID 填入 `js/config.js` 的 `DRIVE_FILE_ID`(每位使用者仍需透過 Picker 授權一次)。
+權限範圍 `drive.file`:只能存取使用者在 Google Picker 中選取過的檔案。
 
 ## 本機測試
 

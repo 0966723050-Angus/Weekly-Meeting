@@ -411,59 +411,6 @@
       row.setAttribute('customHeight', '1');
     }
 
-    // 新增一個工作表(預設隱藏),內容以 inline string 寫入;rows 為二維字串陣列
-    addSheet(name, rows, { hidden = true, widths = [] } = {}) {
-      if (this.sheetPaths[name]) throw new Error(`工作表「${name}」已存在`);
-      let n = 1;
-      while (this.files[`xl/worksheets/sheet${n}.xml`]) n++;
-      const path = `xl/worksheets/sheet${n}.xml`;
-      const x = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      const cols = widths.length
-        ? '<cols>' + widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('') + '</cols>' : '';
-      const body = rows.map((r, ri) => `<row r="${ri + 1}">` + r.map((v, ci) =>
-        `<c r="${idxToCol(ci + 1)}${ri + 1}" t="inlineStr"><is><t xml:space="preserve">${x(v)}</t></is></c>`).join('') + '</row>').join('');
-      const maxCol = Math.max(1, ...rows.map((r) => r.length));
-      this.files[path] = te.encode(XML_DECL +
-        `<worksheet xmlns="${NS}" xmlns:r="${NS_R}"><dimension ref="A1:${idxToCol(maxCol)}${Math.max(1, rows.length)}"/>` +
-        `<sheetViews><sheetView workbookViewId="0"/></sheetViews><sheetFormatPr defaultRowHeight="16.2"/>${cols}` +
-        `<sheetData>${body}</sheetData><pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/></worksheet>`);
-
-      const ctPath = '[Content_Types].xml';
-      const ct = this.doc(ctPath);
-      const ov = ct.createElementNS('http://schemas.openxmlformats.org/package/2006/content-types', 'Override');
-      ov.setAttribute('PartName', '/' + path);
-      ov.setAttribute('ContentType', 'application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml');
-      ct.documentElement.appendChild(ov);
-
-      const relsPath = 'xl/_rels/workbook.xml.rels';
-      const rels = this.doc(relsPath);
-      const ids = Array.from(rels.getElementsByTagName('Relationship')).map((r) => Number((r.getAttribute('Id') || '').replace(/\D/g, '')) || 0);
-      const rid = 'rId' + (Math.max(0, ...ids) + 1);
-      const rel = rels.createElementNS('http://schemas.openxmlformats.org/package/2006/relationships', 'Relationship');
-      rel.setAttribute('Id', rid);
-      rel.setAttribute('Type', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet');
-      rel.setAttribute('Target', `worksheets/sheet${n}.xml`);
-      rels.documentElement.appendChild(rel);
-
-      const wbPath = 'xl/workbook.xml';
-      const wb = this.doc(wbPath);
-      const sheets = wb.getElementsByTagNameNS(NS, 'sheets')[0];
-      const maxId = Math.max(0, ...Array.from(sheets.getElementsByTagNameNS(NS, 'sheet')).map((s) => Number(s.getAttribute('sheetId')) || 0));
-      const sh = wb.createElementNS(NS, 'sheet');
-      sh.setAttribute('name', name);
-      sh.setAttribute('sheetId', String(maxId + 1));
-      if (hidden) sh.setAttribute('state', 'hidden');
-      sh.setAttributeNS(NS_R, 'r:id', rid);
-      sheets.appendChild(sh);
-
-      for (const p of [ctPath, relsPath, wbPath]) {
-        const xml = new XMLSerializer().serializeToString(this._docs[p]).replace(/^<\?xml[^>]*\?>\s*/, '');
-        this.files[p] = te.encode(XML_DECL + xml);
-      }
-      this.sheetNames.push(name);
-      this.sheetPaths[name] = path;
-    }
-
     toBytes() {
       return fflate.zipSync(this.files, { level: 6 });
     }
