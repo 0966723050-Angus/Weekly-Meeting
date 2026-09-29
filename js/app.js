@@ -407,8 +407,10 @@
   const isProjectCol = (col) => /^專案名稱$|^專案\/案場名稱$/.test(col.title);
 
   // 專案名稱選項:生管部檔案「專案主檔」B4 以下(無權限時改用本檔的下拉清單)
+  // 有生管部檔案權限 → 讀生管部;否則讀自己檔案內的「專案主檔」(由「校正」從生管部同步過來)
   async function projectOptions(col) {
-    const key = state.source === 'local' ? 'local' : CFG.PROJECT_SOURCE.file;
+    const key = state.source === 'local' ? 'local'
+      : state.access[CFG.PROJECT_SOURCE.file] ? CFG.PROJECT_SOURCE.file : fileKeyOf(state.current);
     if (state.source === 'drive' && state.access[key] && !state.files[key]) {
       try { await loadFromDrive(key); } catch { /* 下載失敗就用本檔清單 */ }
     }
@@ -707,7 +709,91 @@
       busy('');
     }
   }
+  // ---------- 校正 ----------
+  // 1) 以生管部工作表第 6 列的週次/日期為準,改正各部門工作表每一列的週次/日期
+  // 2) 把生管部檔案的「專案主檔」同步到其他部門檔案,讓各部門的專案名稱下拉選單一致
+  const weekColOf = (m) => m.columns.find((c) => /週次/.test(c.title));
+  const cloneRec = (r) => ({ id: 'n' + ++state.seq, origRow: null, rowEl: null, cells: {}, vals: { ...r.vals },
+    dirty: new Set(Object.keys(r.vals).map(Number)), isNew: true, blank: !!r.blank });
+
+  async function runCalibrate() {
+    if (!canSummarize()) return toast('需要可存取全部部門檔案的帳號才能校正');
+    if (dirtyCount()) {
+      const ok = await confirmDialog('尚有未儲存的修改', '校正會使用雲端上的最新內容。要先儲存目前的修改嗎?', [
+        { label: '取消', value: false },
+        { label: '儲存後校正', value: true, cls: 'btn-primary' },
+      ]);
+      if (!ok) return;
+      await save();
+      if (dirtyCount()) return;
+    }
+    try {
+      for (const k of deptFiles()) await loadFromDrive(k);
+      const ref = CFG.CALIBRATE;
+      const refModel = state.files[ref.file].models[ref.sheet];
+      const refCol = refModel && weekColOf(refModel);
+      const refRec = refModel && refModel.records[ref.row - refModel.dataStart];
+      const refVal = refRec && refCol ? String(refRec.vals[refCol.idx] ?? '').trim() : '';
+      if (!refVal) throw new Error(`${ref.sheet}工作表第 ${ref.row} 列的週次/日期是空的,無法校正`);
+
+      const report = [];
+      // 週次/日期
+      for (const name of ref.sheets) {
+        const f = state.files[sheetCfg(name).file];
+        const m = f && f.models[name];
+        const col = m && weekColOf(m);
+        if (!col) continue;
+        let n = 0;
+        for (const r of m.records) {
+          if (r.blank || String(r.vals[col.idx] ?? '').trim() === refVal) continue;
+          r.vals[col.idx] = refVal;
+          r.dirty.add(col.idx);
+          n++;
+        }
+        if (n) { m.changeCount = (m.changeCount || 0) + 1; report.push(`${sheetCfg(name).label || name}:${n} 列週次/日期`); }
+      }
+      // 專案主檔
+      const srcPm = state.files[CFG.PROJECT_SOURCE.file].models[CFG.PROJECT_SOURCE.sheet];
+      const pmCfg = CFG.SHEETS.find((c) => c.name === CFG.PROJECT_SOURCE.sheet);
+      const sig = (m) => JSON.stringify(m.records.filter((r) => !r.blank).map((r) => m.columns.map((c) => r.vals[c.idx] ?? '')));
+      if (srcPm) {
+        for (const k of deptFiles()) {
+          if (k === CFG.PROJECT_SOURCE.file) continue;
+          const f = state.files[k];
+          if (!f.wb.sheetPaths[CFG.PROJECT_SOURCE.sheet]) continue;
+          const pm = f.wb.readSheet(pmCfg);
+          if (sig(pm) === sig(srcPm)) continue;
+          pm.records = srcPm.records.map(cloneRec);
+          pm.changeCount = 1;
+          f.models[CFG.PROJECT_SOURCE.sheet] = pm; // 隨該檔一起儲存
+          report.push(`${k}檔:同步專案主檔`);
+        }
+      }
+      if (!report.length) {
+        toast(`✅ 全部一致(基準:${refVal}),不需校正`, 4000);
+        return;
+      }
+      const ok = await confirmDialog('校正內容', `基準:${ref.sheet}第 ${ref.row} 列「${refVal}」\n\n${report.join('\n')}\n\n確定要存回雲端硬碟?`, [
+        { label: '取消', value: false },
+        { label: '校正並儲存', value: true, cls: 'btn-primary' },
+      ]);
+      if (!ok) {
+        for (const k of deptFiles()) await loadFromDrive(k); // 放棄校正結果
+        showSheets();
+        return;
+      }
+      await save();
+      toast(dirtyCount() ? '部分檔案未儲存,請再試一次' : '✅ 校正完成', 4000);
+    } catch (err) {
+      toast('校正失敗:' + (err.message || err), 6000);
+    } finally {
+      busy('');
+      if (curFile()) { renderTabs(); renderSheet(false); updateHeader(); }
+    }
+  }
+
   $('summaryBtn').onclick = runSummary;
+  $('calibrateBtn').onclick = runCalibrate;
   $('exportPdfBtn').onclick = exportPdf;
 
   // ---------- 選單 ----------

@@ -220,7 +220,7 @@ main { max-width: 860px; margin: 0 auto; padding: 12px 16px calc(96px + var(--sa
 .action-sheet .cancel { text-align: center; font-weight: 600; margin-top: 4px; background: var(--surface-2); }
 .dialog { width: 100%; max-width: 400px; background: var(--surface); border-radius: 16px; padding: 20px; }
 .dialog h3 { margin: 0 0 8px; font-size: 17px; }
-.dialog p { margin: 0 0 16px; color: var(--muted); font-size: 14px; }
+.dialog p { margin: 0 0 16px; color: var(--muted); font-size: 14px; white-space: pre-line; max-height: 50vh; overflow-y: auto; }
 .dialog-btns { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 .dialog-btns .btn { flex: 1 1 auto; }
 
@@ -275,7 +275,7 @@ main { max-width: 860px; margin: 0 auto; padding: 12px 16px calc(96px + var(--sa
 
 /* 彙整按鈕列 */
 .summary-bar { display: flex; gap: 8px; margin-bottom: 8px; }
-.summary-bar .btn { flex: 1; }
+.summary-bar .btn { flex: 1; padding: 0 8px; white-space: nowrap; }
 
 /* 週次:點擊開日曆 */
 .week-pick { position: relative; cursor: pointer; }
