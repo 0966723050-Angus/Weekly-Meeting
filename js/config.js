@@ -23,5 +23,11 @@ window.APP_CONFIG = {
     { name: '專案主檔', file: '生管部', headerRow: 3 },
   ],
   FILE_PREFIX: 'weekly_meeting_template_',
+
+  // 編輯時「專案名稱」下拉選單的來源:生管部檔案「專案主檔」B4 以下
+  PROJECT_SOURCE: { file: '生管部', sheet: '專案主檔', range: '專案主檔!$B$4:$B$5000' },
+
+  // 彙整輸出檔名(存在生管部檔案所在的雲端資料夾)
+  SUMMARY_NAME: '各部工作彙整',
   DEFAULT_SHEET: '生管部',
 };

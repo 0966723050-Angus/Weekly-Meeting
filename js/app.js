@@ -1,7 +1,7 @@
 // app.js - 主流程與 UI
 (function () {
   const CFG = window.APP_CONFIG;
-  const { Workbook, currentWeekLabel } = window.XlsxModel;
+  const { Workbook, currentWeekLabel, weekLabel, weekLabelDate, todayISO } = window.XlsxModel;
   const $ = (id) => document.getElementById(id);
   const LS_SHEET = 'wm_last_sheet';
 
@@ -98,6 +98,7 @@
       updateHeader();
       return;
     }
+    $('summaryBar').hidden = !canSummarize();
     const last = lsGet(LS_SHEET);
     const pick = [state.current, last, CFG.DEFAULT_SHEET, ...CFG.SHEETS.map((c) => c.name)]
       .find((n) => n && sheetCfg(n) && sheetAvailable(n));
@@ -402,8 +403,24 @@
 
   // ---------- 編輯表單 ----------
   let editing = null; // { rec, insertAt }
-  function openEditor(rec, insertAt) {
+  const isWeekCol = (col) => /週次/.test(col.title);
+  const isProjectCol = (col) => /^專案名稱$|^專案\/案場名稱$/.test(col.title);
+
+  // 專案名稱選項:生管部檔案「專案主檔」B4 以下(無權限時改用本檔的下拉清單)
+  async function projectOptions(col) {
+    const key = state.source === 'local' ? 'local' : CFG.PROJECT_SOURCE.file;
+    if (state.source === 'drive' && state.access[key] && !state.files[key]) {
+      try { await loadFromDrive(key); } catch { /* 下載失敗就用本檔清單 */ }
+    }
+    const src = state.files[key];
+    const list = src && src.wb.sheetPaths[CFG.PROJECT_SOURCE.sheet] ? src.wb.rangeValues(CFG.PROJECT_SOURCE.range) : [];
+    return list.length ? list : (col.options || []);
+  }
+
+  async function openEditor(rec, insertAt) {
     const m = model();
+    const projCol = m.columns.find(isProjectCol);
+    const projList = projCol ? await projectOptions(projCol) : [];
     editing = { rec, insertAt };
     const isNew = insertAt != null;
     const idx = isNew ? insertAt : m.records.indexOf(rec);
@@ -419,7 +436,23 @@
       wrap.htmlFor = id;
       wrap.innerHTML = `<span class="flabel">${esc(col.title)}</span>`;
       let input;
-      if (col.type === 'percent') {
+      if (isWeekCol(col)) {
+        // 點擊跳出日曆,選好日期自動填上週次
+        input = document.createElement('div');
+        input.className = 'week-pick';
+        input.innerHTML = `<input id="${id}" type="text" readonly value="${esc(v ?? '')}" placeholder="點選日期">` +
+          `<span class="cal" aria-hidden="true">📅</span><input type="date" class="week-date" value="${weekLabelDate(v) || todayISO()}" aria-label="${esc(col.title)}">`;
+        const [text, date] = [input.querySelector('input[type=text]'), input.querySelector('.week-date')];
+        date.addEventListener('change', () => { if (date.value) text.value = weekLabel(date.value); });
+        input.addEventListener('click', () => { try { date.showPicker(); } catch { date.focus(); } });
+      } else if (projCol === col && projList.length) {
+        input = document.createElement('select');
+        input.id = id;
+        const cur = v == null ? '' : String(v);
+        const opts = ['', ...projList];
+        if (cur && !projList.includes(cur)) opts.splice(1, 0, cur); // 保留不在清單內的舊值
+        input.innerHTML = opts.map((o) => `<option value="${esc(o)}"${o === cur ? ' selected' : ''}>${o ? esc(o) : '(請選擇)'}</option>`).join('');
+      } else if (col.type === 'percent') {
         input = document.createElement('div');
         input.className = 'pct';
         const n = typeof v === 'number' ? Math.round(v * 1000) / 10 : '';
@@ -493,6 +526,7 @@
       return Number.isFinite(n) ? Math.round(n * 10) / 1000 : '';
     }
     if (col.type === 'date' || el.tagName === 'TEXTAREA') return raw.replace(/\r\n/g, '\n');
+    if (el.tagName === 'SELECT') return raw;
     return raw.trim();
   }
 
@@ -546,8 +580,8 @@
     return targetWb.toBytes();
   }
 
-  function downloadBytes(bytes, name) {
-    const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  function downloadBytes(bytes, name, type = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') {
+    const blob = new Blob([bytes], { type });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = name || 'weekly_meeting.xlsx';
@@ -614,6 +648,67 @@
     }
   }
   $('saveBtn').onclick = save;
+
+  // ---------- 彙整 / 匯出 PDF ----------
+  const deptFiles = () => [...new Set(CFG.SHEETS.map((c) => c.file))];
+  // 可存取全部部門檔案的帳號才能彙整
+  const canSummarize = () => state.source === 'drive' && deptFiles().every((k) => state.access[k]);
+
+  async function runSummary() {
+    if (!canSummarize()) return toast('需要可存取全部部門檔案的帳號才能彙整');
+    if (dirtyCount()) {
+      const ok = await confirmDialog('尚有未儲存的修改', '彙整會使用雲端上的最新內容。要先儲存目前的修改嗎?', [
+        { label: '取消', value: false },
+        { label: '儲存後彙整', value: true, cls: 'btn-primary' },
+      ]);
+      if (!ok) return;
+      await save();
+      if (dirtyCount()) return;
+    }
+    try {
+      // 重新下載各部門檔案,確保是最新內容
+      for (const k of deptFiles()) await loadFromDrive(k);
+      const models = {};
+      for (const cfg of CFG.SHEETS) { const f = state.files[cfg.file]; if (f && f.models[cfg.name]) models[cfg.name] = f.models[cfg.name]; }
+      const rows = Summary.collectRows(models);
+      busy('產生 Excel…');
+      const xlsx = Summary.buildXlsx(rows);
+      busy('產生 PDF…');
+      const pdf = await Summary.buildPdf(rows, CFG.SUMMARY_NAME);
+      busy('存到雲端硬碟…');
+      const parents = await Drive.getParents(state.access[CFG.PROJECT_SOURCE.file].id);
+      await Drive.saveByName(CFG.SUMMARY_NAME + '.xlsx', xlsx, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', parents);
+      await Drive.saveByName(CFG.SUMMARY_NAME + '.pdf', pdf, 'application/pdf', parents);
+      busy('');
+      if (curFile()) { renderTabs(); renderSheet(false); updateHeader(); }
+      const dl = await confirmDialog('彙整完成', `已彙整 ${rows.length} 列,並存到雲端硬碟「${CFG.SUMMARY_NAME}.xlsx」與「${CFG.SUMMARY_NAME}.pdf」。`, [
+        { label: '關閉', value: false },
+        { label: '匯出 PDF', value: true, cls: 'btn-primary' },
+      ]);
+      if (dl) downloadBytes(pdf, CFG.SUMMARY_NAME + '.pdf', 'application/pdf');
+    } catch (err) {
+      toast('彙整失敗:' + (err.message || err), 6000);
+    } finally {
+      busy('');
+    }
+  }
+
+  async function exportPdf() {
+    if (state.source !== 'drive') return toast('請先登入');
+    busy('下載彙整 PDF…');
+    try {
+      const f = await Drive.findByName(CFG.SUMMARY_NAME + '.pdf');
+      if (!f) { busy(''); return toast('雲端硬碟還沒有彙整 PDF,請先按「彙整」', 4000); }
+      const bytes = await Drive.downloadRaw(f.id);
+      downloadBytes(new Uint8Array(bytes), CFG.SUMMARY_NAME + '.pdf', 'application/pdf');
+    } catch (err) {
+      toast('匯出失敗:' + (err.message || err), 6000);
+    } finally {
+      busy('');
+    }
+  }
+  $('summaryBtn').onclick = runSummary;
+  $('exportPdfBtn').onclick = exportPdf;
 
   // ---------- 選單 ----------
   function toggleDrawer(open) {

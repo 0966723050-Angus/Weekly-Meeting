@@ -1,7 +1,7 @@
 // sw.js - PWA 離線快取:只快取網站本身的靜態檔(網路優先),Google API 與檔案資料一律走網路
-const CACHE_NAME = 'atk-weekly-v6';
+const CACHE_NAME = 'atk-weekly-v7';
 const APP_SHELL = [
-  './', './index.html', './css/style.css', './js/config.js', './js/xlsx-model.js',
+  './', './index.html', './css/style.css', './js/config.js', './js/xlsx-model.js', './js/summary.js',
   './js/drive.js', './js/app.js', './manifest.webmanifest', './icons/icon.svg',
 ];
 

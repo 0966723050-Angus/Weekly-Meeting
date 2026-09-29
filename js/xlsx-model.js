@@ -428,16 +428,27 @@
   }
 
   // 本週的週次字串,格式同「使用說明」頁公式:2026-W40 / 2026-09-28(週一)
-  function currentWeekLabel(date = new Date()) {
-    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  // 週次字串:所選日期的 ISO 週次 + 該日期,例如 2026-W40 / 2026-09-29(與現有資料格式一致)
+  function weekLabel(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+    if (!m) return '';
+    const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
     const dow = d.getUTCDay() || 7;
-    const monday = new Date(d); monday.setUTCDate(d.getUTCDate() - dow + 1);
     const thursday = new Date(d); thursday.setUTCDate(d.getUTCDate() + 4 - dow);
     const yearStart = new Date(Date.UTC(thursday.getUTCFullYear(), 0, 1));
     const week = Math.ceil(((thursday - yearStart) / DAY_MS + 1) / 7);
-    // 與 Excel 公式 YEAR(T2) 一致:年份取當天的年份
-    return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')} / ${monday.toISOString().slice(0, 10)}`;
+    return `${thursday.getUTCFullYear()}-W${String(week).padStart(2, '0')} / ${iso}`;
+  }
+  function todayISO() {
+    const t = new Date();
+    return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+  }
+  function currentWeekLabel() { return weekLabel(todayISO()); }
+  // 從週次字串取出日期(支援 2026-09-18 與 2026-09/18 寫法)
+  function weekLabelDate(label) {
+    const m = /(\d{4})-(\d{1,2})[-/](\d{1,2})\s*$/.exec(String(label || ''));
+    return m ? `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}` : '';
   }
 
-  window.XlsxModel = { Workbook, currentWeekLabel, serialToISO, isoToSerial };
+  window.XlsxModel = { Workbook, currentWeekLabel, weekLabel, weekLabelDate, todayISO, serialToISO, isoToSerial, idxToCol };
 })();

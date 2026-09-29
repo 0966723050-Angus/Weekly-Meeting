@@ -111,13 +111,55 @@
     return { meta, bytes };
   }
 
-  async function upload(fileId, bytes) {
+  async function upload(fileId, bytes, mime = XLSX_MIME) {
     const resp = await api(
       `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media&supportsAllDrives=true&fields=${encodeURIComponent(META_FIELDS)}`,
-      { method: 'PATCH', headers: { 'Content-Type': XLSX_MIME }, body: bytes }
+      { method: 'PATCH', headers: { 'Content-Type': mime }, body: bytes }
     );
     if (!resp.ok) throw await apiError(resp, '上傳檔案');
     return resp.json();
+  }
+
+  // 依完整檔名找檔案(最近修改的優先),找不到回傳 null
+  async function findByName(name) {
+    const q = encodeURIComponent(`name = '${name.replace(/'/g, "\\'")}' and trashed = false`);
+    const resp = await api('https://www.googleapis.com/drive/v3/files?supportsAllDrives=true&includeItemsFromAllDrives=true' +
+      `&corpora=allDrives&orderBy=modifiedTime desc&pageSize=10&fields=${encodeURIComponent('files(id,name,parents,webViewLink)')}&q=${q}`);
+    if (!resp.ok) throw await apiError(resp, '搜尋檔案');
+    const { files = [] } = await resp.json();
+    return files[0] || null;
+  }
+
+  async function getParents(fileId) {
+    const resp = await api(`https://www.googleapis.com/drive/v3/files/${fileId}?supportsAllDrives=true&fields=parents`);
+    if (!resp.ok) throw await apiError(resp, '讀取資料夾');
+    return (await resp.json()).parents || [];
+  }
+
+  // 在指定資料夾建立新檔案
+  async function createFile(name, bytes, mime, parents) {
+    const boundary = 'wm' + Math.random().toString(36).slice(2);
+    const head = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n` +
+      JSON.stringify({ name, mimeType: mime, parents }) + `\r\n--${boundary}\r\nContent-Type: ${mime}\r\n\r\n`;
+    const body = new Blob([head, bytes, `\r\n--${boundary}--`]);
+    const resp = await api(
+      `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=${encodeURIComponent(META_FIELDS)}`,
+      { method: 'POST', headers: { 'Content-Type': `multipart/related; boundary=${boundary}` }, body }
+    );
+    if (!resp.ok) throw await apiError(resp, '建立檔案');
+    return resp.json();
+  }
+
+  // 有同名檔案就覆寫內容,否則在 parents 資料夾建立
+  async function saveByName(name, bytes, mime, parents) {
+    const f = await findByName(name);
+    return f ? upload(f.id, bytes, mime) : createFile(name, bytes, mime, parents);
+  }
+
+  async function downloadRaw(fileId) {
+    const resp = await api(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&supportsAllDrives=true`);
+    if (!resp.ok) throw await apiError(resp, '下載檔案');
+    return resp.arrayBuffer();
   }
 
   // 目前登入者(記住 email 作為下次登入的提示,可省去選帳號步驟)
@@ -138,6 +180,7 @@
 
   window.Drive = {
     requestToken, ensureToken, isSignedIn, listWeeklyFiles, getMeta, download, upload,
+    findByName, getParents, saveByName, downloadRaw,
     whoAmI, signOut, debugInfo: () => lastDebug,
   };
 })();

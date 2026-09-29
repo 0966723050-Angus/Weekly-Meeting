@@ -272,3 +272,18 @@ main { max-width: 860px; margin: 0 auto; padding: 12px 16px calc(96px + var(--sa
 }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 
+
+/* 彙整按鈕列 */
+.summary-bar { display: flex; gap: 8px; margin-bottom: 8px; }
+.summary-bar .btn { flex: 1; }
+
+/* 週次:點擊開日曆 */
+.week-pick { position: relative; cursor: pointer; }
+.week-pick input[type="text"] { cursor: pointer; padding-right: 40px !important; }
+.week-pick .cal { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; }
+/* 透明日期欄覆蓋在上面:手機點擊直接開原生日曆 */
+.week-pick .week-date { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; border: 0; }
+.field select {
+  width: 100%; min-height: 44px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface); padding: 9px 12px; font-size: 16px; color: var(--text);
+}

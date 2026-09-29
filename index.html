@@ -60,6 +60,10 @@
     </section>
 
     <section id="sheetView" hidden>
+      <div id="summaryBar" class="summary-bar" hidden>
+        <button id="summaryBtn" class="btn btn-ghost btn-sm" type="button">📊 彙整各部工作</button>
+        <button id="exportPdfBtn" class="btn btn-ghost btn-sm" type="button">📄 匯出彙整 PDF</button>
+      </div>
       <div class="filter-bar">
         <select id="weekFilter" aria-label="週次"></select>
         <input id="searchBox" type="search" placeholder="搜尋專案、負責人、內容…" aria-label="搜尋">
@@ -117,6 +121,7 @@
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script src="js/config.js"></script>
   <script src="js/xlsx-model.js"></script>
+  <script src="js/summary.js"></script>
   <script src="js/drive.js"></script>
   <script src="js/app.js"></script>
 </body>
