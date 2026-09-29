@@ -88,12 +88,11 @@
     $('addBtn').hidden = !any;
     if (!any) {
       $('deniedMsg').textContent = state.user
-        ? `帳號 ${state.user.emailAddress} 目前沒有可使用的週會檔案。若檔案已共用給你,請按下方「選擇週會檔案」,在 ATK 共用雲端硬碟中勾選你的檔案。`
+        ? `帳號 ${state.user.emailAddress} 目前沒有可使用的週會檔案,請聯絡管理者確認檔案共用設定。`
         : '找不到週會表單的工作表,請確認選對檔案。';
-      $('deniedPick').hidden = state.source !== 'drive';
       const d = state.source === 'drive' && Drive.debugInfo();
       $('deniedDebug').textContent = d
-        ? `診斷:清單 ${d.listed} 個檔案${d.listError ? `(錯誤 ${d.listError.trim()})` : ''},已選取 ${d.pickedOk}/${d.picked}` +
+        ? `診斷:找到 ${d.listed} 個檔案${d.listError ? `(錯誤 ${d.listError.trim()})` : ''}` +
           (d.names ? `,檔名:${d.names}` : '')
         : '';
       updateHeader();
@@ -141,20 +140,13 @@
     return roles;
   }
 
-  async function signInAndLoad({ forcePick = false } = {}) {
+  async function signInAndLoad() {
     try {
       busy('登入 Google…');
       await Drive.ensureToken();
       state.user = await Drive.whoAmI().catch(() => null);
       busy('尋找週會檔案…');
-      let access = await Drive.listWeeklyFiles();
-      if (forcePick || !Object.keys(access).length) {
-        // 第一次使用(或要加選):用 Picker 選取自己有權限的週會檔案,授權本網站存取
-        busy('');
-        await Drive.pickFiles();
-        busy('尋找週會檔案…');
-        access = await Drive.listWeeklyFiles();
-      }
+      const access = await Drive.listWeeklyFiles();
       if (state.source !== 'drive') state.files = {};
       state.source = 'drive';
       // 已下載但不再可存取的檔案移除
@@ -661,8 +653,7 @@
       if (state.source === 'local') return toast('本機檔案模式請重新開啟檔案');
       state.files = {}; // 全部重新下載
       signInAndLoad();
-    } else if (act === 'pick') signInAndLoad({ forcePick: true });
-    else if (act === 'openLocal') $('fileInput').click();
+    } else if (act === 'openLocal') $('fileInput').click();
     else if (act === 'signout') {
       Drive.signOut();
       location.reload();
@@ -671,7 +662,6 @@
 
   $('signInBtn').onclick = () => signInAndLoad();
 
-  $('deniedPick').onclick = () => signInAndLoad({ forcePick: true });
   $('deniedSwitch').onclick = () => { Drive.signOut(); location.reload(); };
   $('localBtn').onclick = () => $('fileInput').click();
   $('fileInput').onchange = (e) => {

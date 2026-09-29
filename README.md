@@ -26,10 +26,8 @@
 | 電氣設計 | weekly_meeting_template_電氣設計.xlsx |
 | 管理部、太陽能 | weekly_meeting_template_管理部.xlsx |
 
-- 登入後 App 列出「此帳號有權限且曾在 Picker 選取過」的週會檔案(依檔名對應部門);
+- 登入後 App 直接找出此帳號有權限的週會檔案(依檔名對應部門),不需選檔;
   沒有權限的分頁反白、不可點。點分頁時才下載所屬檔案。
-- 第一次登入會跳出 Picker,請選取自己的週會檔案(可複選);之後換裝置也不必再選。
-  新增共用的檔案可從選單「選擇雲端檔案(加選)」加入。
 - 一次修改多個檔案時,按「儲存」會逐一存回各自的檔案。
 
 ## 寫入方式(為什麼不會弄壞 Excel)
@@ -54,11 +52,8 @@
 與「ATK近期工作項目」共用 Google Cloud 專案 `worklist050` 的 OAuth 用戶端
 (已授權來源 `https://0966723050-angus.github.io`,OAuth 同意畫面為「內部」,僅 atk.com.tw 帳號可登入)。
 
-API 金鑰(僅 Google Picker 使用)**不放在原始碼**:存於 GitHub Secret `GOOGLE_API_KEY`,
-由 `.github/workflows/pages.yml` 部署時注入(GitHub Pages 來源設為 GitHub Actions)。
-金鑰限制:API「Google Picker API」+「Google Drive API」、網站 `https://0966723050-angus.github.io/*`(Picker 驗證時只帶網域,不可限制到子路徑)。
-
-權限範圍 `drive.file`:只能存取使用者在 Google Picker 中選取過的檔案。
+權限範圍 `drive`:程式直接以檔名找出週會檔案,實際可開的檔案由雲端硬碟共用設定決定;程式只讀寫 `weekly_meeting_template_*.xlsx`。
+不使用 Google Picker,因此也不需要 API 金鑰(iPhone Safari 會擋住 Picker 的 Google 登入)。
 
 ## 本機測試
 

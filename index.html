@@ -31,7 +31,6 @@
   <aside id="drawer" class="drawer" aria-hidden="true">
     <div id="userLine" class="drawer-user">尚未登入</div>
     <button class="drawer-item" data-act="reload" type="button">🔄 從雲端重新載入</button>
-    <button class="drawer-item" data-act="pick" type="button">📂 選擇雲端檔案(加選)</button>
     <button class="drawer-item" data-act="openLocal" type="button">💻 開啟本機 Excel 檔</button>
     <button class="drawer-item" data-act="download" id="downloadItem" type="button">⬇️ 下載目前內容 (.xlsx)</button>
     <button class="drawer-item" data-act="openDrive" type="button">↗️ 在 Google 雲端開啟</button>
@@ -47,7 +46,7 @@
         <p>以公司 Google 帳號登入後,即可在手機上檢視、編輯、新增或刪除週會表單的資料列,並直接存回雲端硬碟。</p>
         <button id="signInBtn" class="btn btn-primary btn-lg" type="button">使用 Google 帳號登入</button>
         <button id="localBtn" class="btn btn-ghost" type="button">或開啟本機 Excel 檔</button>
-        <p class="hint">第一次登入時,請在跳出的檔案選擇視窗中選取 ATK 工作區裡<b>你的週會檔案</b>(可複選;只授權本工具存取所選的檔案)。</p>
+        <p class="hint">登入後會自動開啟你有權限的週會檔案。</p>
       </div>
     </section>
 
@@ -55,7 +54,6 @@
       <div class="welcome-card">
         <h2>沒有可使用的週會檔案</h2>
         <p id="deniedMsg"></p>
-        <button id="deniedPick" class="btn btn-primary" type="button">選擇週會檔案</button>
         <button id="deniedSwitch" class="btn btn-ghost" type="button">改用其他帳號登入</button>
         <p id="deniedDebug" class="hint"></p>
       </div>
@@ -117,7 +115,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.js"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script src="https://apis.google.com/js/api.js" async defer></script>
   <script src="js/config.js"></script>
   <script src="js/xlsx-model.js"></script>
   <script src="js/drive.js"></script>

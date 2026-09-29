@@ -1,22 +1,18 @@
 // drive.js
-// Google 登入(drive.file 權限,只能存取使用者用 Picker 選過的檔案)+ Drive 檔案列出/下載/上傳。
+// Google 登入 + 雲端硬碟週會檔案的列出/下載/上傳。
 // 支援共用雲端硬碟(ATK 工作區),所有呼叫都帶 supportsAllDrives=true。
 (function () {
   const CFG = window.APP_CONFIG;
   const LS_HINT = 'wm_login_hint';
-  const LS_PICKED = 'wm_picked_ids';
   const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
   let tokenClient = null;
   let accessToken = null;
   let tokenExpiry = 0;
-  let pickerLoaded = false;
   let lastDebug = null;
 
   function lsGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
   function lsSet(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} }
-  function getPicked() { try { return JSON.parse(lsGet(LS_PICKED) || '[]'); } catch { return []; } }
-  function setPicked(ids) { lsSet(LS_PICKED, JSON.stringify([...new Set(ids)])); }
 
   function requestToken(prompt) {
     return new Promise((resolve, reject) => {
@@ -71,87 +67,28 @@
     return e;
   }
 
-  function loadPicker() {
-    return new Promise((resolve, reject) => {
-      if (pickerLoaded) return resolve();
-      if (!window.gapi) return reject(new Error('Google Picker 元件尚未載入'));
-      gapi.load('picker', { callback: () => { pickerLoaded = true; resolve(); }, onerror: () => reject(new Error('Google Picker 載入失敗')) });
-    });
-  }
-
-  // 讓使用者在 Google Picker 選取週會 Excel 檔(可複選),同時授權本網站存取這些檔案
-  async function pickFiles() {
-    if (!CFG.GOOGLE_API_KEY || CFG.GOOGLE_API_KEY.startsWith('__')) {
-      throw new Error('網站尚未設定 Google API 金鑰(GitHub Secret GOOGLE_API_KEY),無法開啟檔案選擇視窗');
-    }
-    await ensureToken();
-    await loadPicker();
-    return new Promise((resolve, reject) => {
-      const shared = new google.picker.DocsView(google.picker.ViewId.DOCS)
-        .setMimeTypes(XLSX_MIME).setEnableDrives(true).setIncludeFolders(true)
-        .setQuery('weekly_meeting_template');
-      const mine = new google.picker.DocsView(google.picker.ViewId.DOCS)
-        .setMimeTypes(XLSX_MIME).setIncludeFolders(true).setQuery('weekly_meeting_template');
-      const picker = new google.picker.PickerBuilder()
-        .enableFeature(google.picker.Feature.SUPPORT_DRIVES)
-        .enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
-        .setOAuthToken(accessToken)
-        .setDeveloperKey(CFG.GOOGLE_API_KEY)
-        .setAppId(CFG.GOOGLE_PROJECT_NUMBER)
-        .addView(shared)
-        .addView(mine)
-        .setTitle('請選取 ATK 工作區中你的週會檔案(可複選)')
-        .setCallback((data) => {
-          if (data.action === google.picker.Action.PICKED) {
-            const ids = (data.docs || []).map((d) => d.id);
-            setPicked([...getPicked(), ...ids]);
-            resolve(ids);
-          } else if (data.action === google.picker.Action.CANCEL) {
-            reject(new Error('已取消選取檔案'));
-          }
-        })
-        .build();
-      picker.setVisible(true);
-    });
-  }
-
-  // 列出本網站可存取(使用者曾用 Picker 選取過且目前仍有權限)的週會檔案
+  // 列出此帳號有權限的週會檔案(依雲端硬碟共用設定),含共用雲端硬碟 ATK
   // 回傳 { 部門代號: { id, name } },部門代號取自檔名 weekly_meeting_template_<部門>.xlsx
-  // 來源:1) files.list(drive.file 只會回傳本網站被授權的檔案,不加名稱條件,由程式比對檔名)
-  //       2) 本機記住的 Picker 選取檔案 ID,逐一查詢(不依賴搜尋,確保共用雲端硬碟的檔案也找得到)
   async function listWeeklyFiles() {
     const found = new Map(); // id -> name
-    const debug = { listed: 0, listError: '', picked: 0, pickedOk: 0 };
-    const fields = encodeURIComponent('nextPageToken,files(id,name)');
-    const q = encodeURIComponent(`mimeType = '${XLSX_MIME}' and trashed = false`);
+    const debug = { listed: 0, listError: '' };
+    const fields = encodeURIComponent('files(id,name)');
+    const q = encodeURIComponent("name contains 'weekly_meeting_template' and trashed = false");
     for (const corpora of ['allDrives', 'user']) {
-      const url = `https://www.googleapis.com/drive/v3/files?supportsAllDrives=true&includeItemsFromAllDrives=true` +
-        `&corpora=${corpora}&pageSize=200&fields=${fields}&q=${q}`;
+      const url = 'https://www.googleapis.com/drive/v3/files?supportsAllDrives=true&includeItemsFromAllDrives=true' +
+        `&corpora=${corpora}&pageSize=200&orderBy=modifiedTime desc&fields=${fields}&q=${q}`;
       const resp = await api(url);
       if (!resp.ok) { debug.listError += `${corpora}:${resp.status} `; continue; }
       const { files = [] } = await resp.json();
-      for (const f of files) found.set(f.id, f.name);
+      for (const f of files) if (!found.has(f.id)) found.set(f.id, f.name);
       debug.listed += files.length;
+      if (corpora === 'allDrives') break; // allDrives 已涵蓋全部
     }
-    const picked = getPicked();
-    debug.picked = picked.length;
-    const keep = [];
-    for (const id of picked) {
-      if (found.has(id)) { keep.push(id); debug.pickedOk++; continue; }
-      const resp = await api(`https://www.googleapis.com/drive/v3/files/${id}?supportsAllDrives=true&fields=id,name,trashed`);
-      if (resp.ok) {
-        const f = await resp.json();
-        if (!f.trashed) { found.set(f.id, f.name); keep.push(id); debug.pickedOk++; }
-      } else if (resp.status !== 404 && resp.status !== 403) {
-        keep.push(id); // 暫時性錯誤,先保留
-      }
-    }
-    setPicked(keep);
     const out = {};
     const re = new RegExp('^' + CFG.FILE_PREFIX + '(.+?)\\.xlsx$', 'i');
     for (const [id, name] of found) {
       const m = re.exec(String(name).trim());
-      if (m && !out[m[1]]) out[m[1]] = { id, name };
+      if (m && !out[m[1]]) out[m[1]] = { id, name }; // 同名取最近修改的
     }
     debug.names = [...found.values()].join('、');
     lastDebug = debug;
@@ -200,7 +137,7 @@
   }
 
   window.Drive = {
-    requestToken, ensureToken, isSignedIn, pickFiles, listWeeklyFiles, getMeta, download, upload,
+    requestToken, ensureToken, isSignedIn, listWeeklyFiles, getMeta, download, upload,
     whoAmI, signOut, debugInfo: () => lastDebug,
   };
 })();

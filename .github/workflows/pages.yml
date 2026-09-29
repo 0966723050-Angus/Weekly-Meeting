@@ -1,5 +1,4 @@
-# 部署到 GitHub Pages:把 GitHub Secret 中的 Google API 金鑰注入 js/config.js 後再發布,
-# 金鑰不進 git 版本庫。
+# 部署到 GitHub Pages(只發布網站需要的檔案)。
 name: Deploy Pages
 
 on:
@@ -24,12 +23,8 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - name: Inject API key
-        env:
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      - name: Collect site files
         run: |
-          if [ -z "$GOOGLE_API_KEY" ]; then echo "::error::缺少 GitHub Secret GOOGLE_API_KEY"; exit 1; fi
-          sed -i "s|__GOOGLE_API_KEY__|${GOOGLE_API_KEY}|" js/config.js
           mkdir -p _site
           cp -r index.html manifest.webmanifest sw.js css js icons _site/
       - uses: actions/configure-pages@v5

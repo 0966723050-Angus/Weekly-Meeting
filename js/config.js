@@ -3,13 +3,10 @@ window.APP_CONFIG = {
   // 與「ATK近期工作項目」共用同一個 Google Cloud 專案(worklist050)的憑證,
   // 已授權來源 https://0966723050-angus.github.io
   GOOGLE_CLIENT_ID: '873968217418-q5t3i90e4pf04kbd4l6vbpjib13etb7o.apps.googleusercontent.com',
-  GOOGLE_PROJECT_NUMBER: '873968217418',
-  // API 金鑰(僅 Google Picker 使用)不放在原始碼中:存於 GitHub Secret「GOOGLE_API_KEY」,
-  // 由 .github/workflows/pages.yml 部署時替換下面的佔位字串。
-  GOOGLE_API_KEY: '__GOOGLE_API_KEY__',
 
-  // 僅能存取使用者透過 Picker 選取過的檔案,不會取得整個雲端硬碟權限
-  DRIVE_SCOPE: 'https://www.googleapis.com/auth/drive.file',
+  // 雲端硬碟權限:由程式直接找出使用者有權限的週會檔案(不需選檔視窗)。
+  // 實際能開哪些檔案仍由雲端硬碟的共用設定決定;程式只讀寫 weekly_meeting_template_*.xlsx。
+  DRIVE_SCOPE: 'https://www.googleapis.com/auth/drive',
 
   // 分頁 → 所屬檔案(檔名 weekly_meeting_template_<file>.xlsx)。
   // 誰能開哪個檔案由 Google 雲端硬碟的共用權限決定;沒有權限的檔案,其分頁會反白不可點。
