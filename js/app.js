@@ -88,8 +88,14 @@
     $('addBtn').hidden = !any;
     if (!any) {
       $('deniedMsg').textContent = state.user
-        ? `帳號 ${state.user.emailAddress} 沒有可使用的週會檔案。若檔案已共用給你,請從選單「選擇雲端檔案」選取。`
+        ? `帳號 ${state.user.emailAddress} 目前沒有可使用的週會檔案。若檔案已共用給你,請按下方「選擇週會檔案」,在 ATK 共用雲端硬碟中勾選你的檔案。`
         : '找不到週會表單的工作表,請確認選對檔案。';
+      $('deniedPick').hidden = state.source !== 'drive';
+      const d = state.source === 'drive' && Drive.debugInfo();
+      $('deniedDebug').textContent = d
+        ? `診斷:清單 ${d.listed} 個檔案${d.listError ? `(錯誤 ${d.listError.trim()})` : ''},已選取 ${d.pickedOk}/${d.picked}` +
+          (d.names ? `,檔名:${d.names}` : '')
+        : '';
       updateHeader();
       return;
     }
@@ -665,6 +671,7 @@
 
   $('signInBtn').onclick = () => signInAndLoad();
 
+  $('deniedPick').onclick = () => signInAndLoad({ forcePick: true });
   $('deniedSwitch').onclick = () => { Drive.signOut(); location.reload(); };
   $('localBtn').onclick = () => $('fileInput').click();
   $('fileInput').onchange = (e) => {
