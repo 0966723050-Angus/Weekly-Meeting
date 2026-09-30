@@ -225,10 +225,14 @@ main { max-width: 860px; margin: 0 auto; padding: 12px 16px calc(96px + var(--sa
 .dialog-btns .btn { flex: 1 1 auto; }
 
 /* ---------- 編輯表單 ---------- */
-.editor-overlay { z-index: 45; display: flex; justify-content: center; align-items: stretch; }
+.editor-overlay {
+  z-index: 45; display: flex; justify-content: center; align-items: stretch; overflow: hidden;
+  /* 手機:四周留一點邊,編輯頁略小於螢幕 */
+  padding: calc(8px + env(safe-area-inset-top, 0px)) 8px calc(8px + env(safe-area-inset-bottom, 0px));
+}
 .editor {
-  width: 100%; max-width: 640px; background: var(--bg); display: flex; flex-direction: column;
-  height: 100dvh;
+  width: 100%; max-width: 640px; min-width: 0; background: var(--bg); display: flex; flex-direction: column;
+  height: 100%; border-radius: 16px; overflow: hidden;
 }
 @media (min-width: 700px) {
   .editor-overlay { align-items: center; padding: 24px; }
@@ -239,8 +243,13 @@ main { max-width: 860px; margin: 0 auto; padding: 12px 16px calc(96px + var(--sa
   background: var(--surface); border-bottom: 1px solid var(--border); flex: none;
 }
 .editor-head h2 { flex: 1; margin: 0; font-size: 15.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.editor-fields { flex: 1; overflow-y: auto; padding: 12px 16px; display: flex; flex-direction: column; gap: 12px; -webkit-overflow-scrolling: touch; }
-.field { display: flex; flex-direction: column; gap: 4px; }
+.editor-fields {
+  flex: 1; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; touch-action: pan-y;
+  padding: 12px 14px; display: flex; flex-direction: column; gap: 12px; -webkit-overflow-scrolling: touch;
+}
+.field { display: flex; flex-direction: column; gap: 4px; min-width: 0; max-width: 100%; }
+/* 所有欄位不得超出編輯頁寬度(iOS 的日期/選單欄位有內建最小寬度) */
+.field input, .field textarea, .field select, .field > div { max-width: 100%; min-width: 0; }
 .flabel { font-size: 13px; color: var(--muted); font-weight: 600; }
 .field input[type="text"], .field input:not([type]), .field input[type="date"], .field input[type="number"], .field textarea {
   width: 100%; min-height: 44px; border: 1px solid var(--border); border-radius: 10px;
@@ -248,8 +257,8 @@ main { max-width: 860px; margin: 0 auto; padding: 12px 16px calc(96px + var(--sa
 }
 .field textarea { resize: vertical; line-height: 1.5; }
 .field input:focus, .field textarea:focus { outline: 2px solid var(--primary); outline-offset: -1px; }
-.pct { display: grid; grid-template-columns: 90px auto 1fr; align-items: center; gap: 8px; }
-.pct input[type="range"] { width: 100%; accent-color: var(--primary); }
+.pct { display: grid; grid-template-columns: 90px auto minmax(0, 1fr); align-items: center; gap: 8px; }
+.pct input[type="range"] { width: 100%; min-width: 0; accent-color: var(--primary); }
 .opt-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .opt-chips button {
   padding: 5px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); font-size: 13.5px; cursor: pointer;
@@ -282,14 +291,18 @@ main { max-width: 860px; margin: 0 auto; padding: 12px 16px calc(96px + var(--sa
 .week-pick input[type="text"] { cursor: pointer; padding-right: 40px !important; }
 .week-pick .cal { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; }
 /* 透明日期欄覆蓋在上面:手機點擊直接開原生日曆 */
-.week-pick .week-date { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; border: 0; }
+.week-pick { overflow: hidden; border-radius: 10px; }
+.week-pick .week-date {
+  position: absolute; left: 0; top: 0; width: 100%; height: 100%; min-width: 0; max-width: 100%;
+  opacity: 0; cursor: pointer; border: 0; padding: 0; margin: 0; -webkit-appearance: none; appearance: none;
+}
 .field select {
   width: 100%; min-height: 44px; border: 1px solid var(--border); border-radius: 10px;
   background: var(--surface); padding: 9px 12px; font-size: 16px; color: var(--text);
 }
 
 /* 專案名稱:可輸入 + 下拉選取 */
-.combo { position: relative; }
+.combo { position: relative; overflow: hidden; border-radius: 10px; }
 .combo input[type="text"] { padding-right: 52px !important; }
 .combo .combo-btn {
   position: absolute; right: 1px; top: 1px; bottom: 1px; width: 46px;
@@ -300,5 +313,5 @@ main { max-width: 860px; margin: 0 auto; padding: 12px 16px calc(96px + var(--sa
 /* 透明的原生選單疊在 ▾ 上:手機點擊直接開原生清單 */
 .combo .combo-select {
   position: absolute; right: 0; top: 0; bottom: 0; width: 48px; opacity: 0; cursor: pointer;
-  border: 0; font-size: 16px;
+  border: 0; font-size: 16px; min-width: 0; max-width: 48px; -webkit-appearance: none; appearance: none;
 }
