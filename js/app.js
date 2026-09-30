@@ -438,12 +438,17 @@
         date.addEventListener('change', () => { if (date.value) text.value = weekLabel(date.value); });
         input.addEventListener('click', () => { try { date.showPicker(); } catch { date.focus(); } });
       } else if (projCol === col && projList.length) {
-        input = document.createElement('select');
-        input.id = id;
+        // 可直接輸入,也可按右側 ▾ 從專案主檔清單選取
+        input = document.createElement('div');
+        input.className = 'combo';
         const cur = v == null ? '' : String(v);
-        const opts = ['', ...projList];
-        if (cur && !projList.includes(cur)) opts.splice(1, 0, cur); // 保留不在清單內的舊值
-        input.innerHTML = opts.map((o) => `<option value="${esc(o)}"${o === cur ? ' selected' : ''}>${o ? esc(o) : '(請選擇)'}</option>`).join('');
+        input.innerHTML = `<input id="${id}" type="text" value="${esc(cur)}" placeholder="輸入或按右側 ▾ 選擇">` +
+          `<span class="combo-btn" aria-hidden="true">▾</span>` +
+          `<select class="combo-select" aria-label="從清單選擇${esc(col.title)}">` +
+          `<option value="" selected disabled>從清單選擇…</option>` +
+          projList.map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join('') + '</select>';
+        const [text, pick] = [input.querySelector('input'), input.querySelector('select')];
+        pick.addEventListener('change', () => { text.value = pick.value; pick.selectedIndex = 0; });
       } else if (col.type === 'percent') {
         input = document.createElement('div');
         input.className = 'pct';

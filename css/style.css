@@ -287,3 +287,18 @@ main { max-width: 860px; margin: 0 auto; padding: 12px 16px calc(96px + var(--sa
   width: 100%; min-height: 44px; border: 1px solid var(--border); border-radius: 10px;
   background: var(--surface); padding: 9px 12px; font-size: 16px; color: var(--text);
 }
+
+/* 專案名稱:可輸入 + 下拉選取 */
+.combo { position: relative; }
+.combo input[type="text"] { padding-right: 52px !important; }
+.combo .combo-btn {
+  position: absolute; right: 1px; top: 1px; bottom: 1px; width: 46px;
+  display: flex; align-items: center; justify-content: center; pointer-events: none;
+  border-left: 1px solid var(--border); border-radius: 0 10px 10px 0;
+  background: var(--surface-2); color: var(--muted); font-size: 18px;
+}
+/* 透明的原生選單疊在 ▾ 上:手機點擊直接開原生清單 */
+.combo .combo-select {
+  position: absolute; right: 0; top: 0; bottom: 0; width: 48px; opacity: 0; cursor: pointer;
+  border: 0; font-size: 16px;
+}
