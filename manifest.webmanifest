@@ -1,7 +1,7 @@
 {
-  "name": "ATK 週會表單",
-  "short_name": "ATK週會",
-  "description": "ATK 每週幹部週會 Excel 表單的手機編輯工具",
+  "name": "ATK部門週報",
+  "short_name": "ATK部門週報",
+  "description": "ATK 各部門週報的手機編輯工具",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

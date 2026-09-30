@@ -1,4 +1,4 @@
-// ATK 週會表單 - 全域設定
+// ATK部門週報 - 全域設定
 window.APP_CONFIG = {
   // 與「ATK近期工作項目」共用同一個 Google Cloud 專案(worklist050)的憑證,
   // 已授權來源 https://0966723050-angus.github.io

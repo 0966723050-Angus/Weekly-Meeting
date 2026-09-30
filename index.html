@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>ATK 週會表單</title>
-<meta name="description" content="ATK 每週幹部週會 Excel 表單的手機編輯工具,直接讀寫 Google 雲端硬碟上的檔案">
+<title>ATK部門週報</title>
+<meta name="description" content="ATK 各部門週報的手機編輯工具,直接讀寫 Google 雲端硬碟上的檔案">
 <meta name="theme-color" content="#0f766e">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="ATK週會">
+<meta name="apple-mobile-web-app-title" content="ATK部門週報">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
@@ -17,7 +17,7 @@
   <header class="app-header">
     <button id="menuBtn" class="icon-btn" type="button" aria-label="選單">☰</button>
     <div class="title-wrap">
-      <h1>ATK 週會表單</h1>
+      <h1>ATK部門週報</h1>
       <div id="fileLine" class="file-line"></div>
     </div>
     <button id="saveBtn" class="btn btn-save" type="button" disabled>
@@ -31,7 +31,6 @@
   <aside id="drawer" class="drawer" aria-hidden="true">
     <div id="userLine" class="drawer-user">尚未登入</div>
     <button class="drawer-item" data-act="reload" type="button">🔄 從雲端重新載入</button>
-    <button class="drawer-item" data-act="openLocal" type="button">💻 開啟本機 Excel 檔</button>
     <button class="drawer-item" data-act="exportDir" type="button">📁 變更 PDF 匯出資料夾</button>
     <button class="drawer-item" data-act="download" id="downloadItem" type="button">⬇️ 下載目前內容 (.xlsx)</button>
     <button class="drawer-item" data-act="openDrive" type="button">↗️ 在 Google 雲端開啟</button>
@@ -43,17 +42,16 @@
     <section id="welcome" class="welcome">
       <div class="welcome-card">
         <img src="icons/icon.svg" alt="" width="64" height="64">
-        <h2>每週一 09:30 幹部週會</h2>
-        <p>以公司 Google 帳號登入後,即可在手機上檢視、編輯、新增或刪除週會表單的資料列,並直接存回雲端硬碟。</p>
+        <h2>ATK部門週報</h2>
+        <p>以公司 Google 帳號登入後,即可在手機上檢視、編輯、新增或刪除週報的資料列,並直接存回雲端硬碟。</p>
         <button id="signInBtn" class="btn btn-primary btn-lg" type="button">使用 Google 帳號登入</button>
-        <button id="localBtn" class="btn btn-ghost" type="button">或開啟本機 Excel 檔</button>
-        <p class="hint">登入後會自動開啟你有權限的週會檔案。</p>
+        <p class="hint">登入後會自動開啟你有權限的週報檔案。</p>
       </div>
     </section>
 
     <section id="denied" class="welcome" hidden>
       <div class="welcome-card">
-        <h2>沒有可使用的週會檔案</h2>
+        <h2>沒有可使用的週報檔案</h2>
         <p id="deniedMsg"></p>
         <button id="deniedSwitch" class="btn btn-ghost" type="button">改用其他帳號登入</button>
         <p id="deniedDebug" class="hint"></p>
@@ -117,7 +115,6 @@
 
   <div id="busy" class="busy" hidden><div class="spinner"></div><div id="busyMsg">處理中…</div></div>
   <div id="toast" class="toast" role="status"></div>
-  <input id="fileInput" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
 
   <script src="https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.js"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>

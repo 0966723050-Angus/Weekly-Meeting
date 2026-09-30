@@ -6,7 +6,7 @@
   const LS_SHEET = 'wm_last_sheet';
 
   const state = {
-    source: null,        // 'drive' | 'local'
+    source: null,        // 'drive'(登入雲端硬碟後)
     access: {},          // 檔案代號(部門) -> { id, name }:此帳號可存取的雲端檔案
     files: {},           // 檔案代號 -> { key, fileId, name, meta, wb, origSst, models }
     current: null,       // 目前工作表名稱
@@ -14,8 +14,8 @@
     seq: 0,
   };
   const sheetCfg = (name) => CFG.SHEETS.find((c) => c.name === name);
-  // 工作表所屬的檔案代號;本機模式只有一個檔案
-  const fileKeyOf = (name) => (state.source === 'local' ? 'local' : sheetCfg(name).file);
+  // 工作表所屬的檔案代號
+  const fileKeyOf = (name) => sheetCfg(name).file;
   const curFile = () => state.files[fileKeyOf(state.current)];
 
   // ---------- 共用 UI ----------
@@ -60,7 +60,7 @@
     const wb = new Workbook(bytes);
     const models = {};
     for (const cfg of CFG.SHEETS) {
-      if (key !== 'local' && cfg.file !== key) continue;
+      if (cfg.file !== key) continue;
       if (!wb.sheetPaths[cfg.name]) continue;
       const m = wb.readSheet(cfg);
       m.roles = detectRoles(m.columns);
@@ -72,7 +72,6 @@
 
   // 此工作表是否可使用(有權限的檔案裡確實有這張表)
   function sheetAvailable(name) {
-    if (state.source === 'local') return !!(state.files.local && state.files.local.models[name]);
     const key = sheetCfg(name).file;
     if (!state.access[key]) return false;
     const f = state.files[key];
@@ -88,8 +87,8 @@
     $('addBtn').hidden = !any;
     if (!any) {
       $('deniedMsg').textContent = state.user
-        ? `帳號 ${state.user.emailAddress} 目前沒有可使用的週會檔案,請聯絡管理者確認檔案共用設定。`
-        : '找不到週會表單的工作表,請確認選對檔案。';
+        ? `帳號 ${state.user.emailAddress} 目前沒有可使用的週報檔案,請聯絡管理者確認檔案共用設定。`
+        : '找不到週報檔案。';
       const d = state.source === 'drive' && Drive.debugInfo();
       $('deniedDebug').textContent = d
         ? `診斷:找到 ${d.listed} 個檔案${d.listError ? `(錯誤 ${d.listError.trim()})` : ''}` +
@@ -146,7 +145,7 @@
       busy('登入 Google…');
       await Drive.ensureToken();
       state.user = await Drive.whoAmI().catch(() => null);
-      busy('尋找週會檔案…');
+      busy('尋找週報檔案…');
       const access = await Drive.listWeeklyFiles();
       if (state.source !== 'drive') state.files = {};
       state.source = 'drive';
@@ -172,24 +171,6 @@
     }
   }
 
-  function openLocalFile(file) {
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        state.source = 'local';
-        state.access = {};
-        state.files = {};
-        state.current = null;
-        parseFile('local', reader.result, { name: file.name, meta: null, fileId: null });
-        showSheets();
-        toast(`已開啟本機檔案「${file.name}」;按「下載」取得修改後的檔案`, 4000);
-      } catch (err) {
-        toast('無法讀取檔案:' + err.message, 5000);
-      }
-    };
-    reader.readAsArrayBuffer(file);
-  }
-
   // ---------- 頁首 / 分頁 ----------
   const fileDirty = (f) => Object.values(f.models).reduce((n, m) => n + (m.changeCount || 0), 0);
   function dirtyCount() {
@@ -202,15 +183,13 @@
     badge.textContent = n;
     const f = state.current && state.files[fileKeyOf(state.current)];
     $('saveBtn').disabled = !f || (n === 0 && state.source === 'drive');
-    $('saveBtn').firstElementChild.textContent = state.source === 'local' ? '下載' : '儲存';
     let line = f ? f.name : '';
     if (f && f.meta && f.meta.modifiedTime) {
       const d = new Date(f.meta.modifiedTime);
       line += ` · ${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} 更新`;
     }
-    if (state.source === 'local') line += ' · 本機檔案';
     $('fileLine').textContent = line;
-    $('userLine').textContent = state.user ? `${state.user.displayName}\n${state.user.emailAddress}` : (state.source === 'local' ? '本機檔案模式' : '尚未登入');
+    $('userLine').textContent = state.user ? `${state.user.displayName}\n${state.user.emailAddress}` : '尚未登入';
     for (const tab of $('sheetTabs').children) {
       const tf = state.files[fileKeyOf(tab.dataset.sheet)];
       const m = tf && tf.models[tab.dataset.sheet];
@@ -409,8 +388,7 @@
   // 專案名稱選項:生管部檔案「專案主檔」B4 以下(無權限時改用本檔的下拉清單)
   // 有生管部檔案權限 → 讀生管部;否則讀自己檔案內的「專案主檔」(由「校正」從生管部同步過來)
   async function projectOptions(col) {
-    const key = state.source === 'local' ? 'local'
-      : state.access[CFG.PROJECT_SOURCE.file] ? CFG.PROJECT_SOURCE.file : fileKeyOf(state.current);
+    const key = state.access[CFG.PROJECT_SOURCE.file] ? CFG.PROJECT_SOURCE.file : fileKeyOf(state.current);
     if (state.source === 'drive' && state.access[key] && !state.files[key]) {
       try { await loadFromDrive(key); } catch { /* 下載失敗就用本檔清單 */ }
     }
@@ -641,11 +619,6 @@
   }
 
   async function save() {
-    if (state.source === 'local') {
-      const f = state.files.local;
-      if (f) downloadBytes(buildBytes(f, new Workbook(f.wb.toBytes())), f.name);
-      return;
-    }
     const dirty = Object.values(state.files).filter((f) => fileDirty(f));
     if (!dirty.length) return;
     let saved = 0;
@@ -919,11 +892,9 @@
     }
     if (!(await guardDirty())) return;
     if (act === 'reload') {
-      if (state.source === 'local') return toast('本機檔案模式請重新開啟檔案');
       state.files = {}; // 全部重新下載
       signInAndLoad();
     } else if (act === 'exportDir') changeExportDir();
-    else if (act === 'openLocal') $('fileInput').click();
     else if (act === 'signout') {
       Drive.signOut();
       location.reload();
@@ -933,12 +904,6 @@
   $('signInBtn').onclick = () => signInAndLoad();
 
   $('deniedSwitch').onclick = () => { Drive.signOut(); location.reload(); };
-  $('localBtn').onclick = () => $('fileInput').click();
-  $('fileInput').onchange = (e) => {
-    const f = e.target.files && e.target.files[0];
-    if (f) openLocalFile(f);
-    e.target.value = '';
-  };
   $('weekFilter').onchange = () => renderSheet(false);
   let searchTimer;
   $('searchBox').oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => renderSheet(false), 150); };
