@@ -79,6 +79,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .btn-sm { min-height: 34px; padding: 0 14px; }
 .btn-save { background: #fff; color: var(--primary-2); flex: none; }
 .btn-save:disabled { opacity: .55; }
+.btn-submit { background: transparent; color: #fff; border-color: rgba(255,255,255,.7); flex: none; padding: 0 12px; }
+.btn-submit.done { background: rgba(255,255,255,.18); border-color: transparent; }
+.btn-submit:disabled { opacity: .55; }
 .badge {
   min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px;
   background: var(--changed); color: #fff; font-size: 12px; line-height: 20px; text-align: center;

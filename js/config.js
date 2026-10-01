@@ -21,6 +21,7 @@ window.APP_CONFIG = {
     { name: '總表', file: '生管部', headerRow: 5, maxRow: 13 },
     { name: '行動追蹤', file: '生管部', headerRow: 3 },
     { name: '專案主檔', file: '生管部', headerRow: 3 },
+    { name: '週報提交', file: '生管部', headerRow: 1 },
   ],
   FILE_PREFIX: 'weekly_meeting_template_',
 
@@ -37,4 +38,8 @@ window.APP_CONFIG = {
   EXPORT_NAME: '本週會議重點',
   EXPORT_DIR_HINT: 'C:\\ATK\\週會\\彙整',
   DEFAULT_SHEET: '生管部',
+
+  // 「提交週報」:Google Apps Script 網頁應用程式網址(由它以管理者身分在生管部檔案「週報提交」註記)
+  // 部署後把網址貼在這裡;留空時不顯示「提交」鍵
+  SUBMIT_URL: '',
 };

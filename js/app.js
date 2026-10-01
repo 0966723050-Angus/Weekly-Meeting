@@ -154,6 +154,7 @@
       state.access = access;
       busy('');
       showSheets();
+      refreshSubmitState();
     } catch (err) {
       busy('');
       toast(err.message || String(err), 5000);
@@ -640,6 +641,61 @@
     }
   }
   $('saveBtn').onclick = save;
+
+  // ---------- 提交週報 ----------
+  // 透過 Apps Script(管理者身分)在生管部檔案「週報提交」工作表註記;每週二 10:00 由 Apps Script 清空
+  async function callSubmit(action) {
+    const token = await Drive.ensureToken();
+    const resp = await fetch(CFG.SUBMIT_URL, { method: 'POST', body: JSON.stringify({ action, token }) });
+    const data = await resp.json().catch(() => ({ ok: false, error: `伺服器回應異常(${resp.status})` }));
+    if (!data.ok) throw new Error(data.error || '提交失敗');
+    return data;
+  }
+
+  function showSubmitState(data) {
+    const btn = $('submitBtn');
+    const sub = data && data.submission;
+    const done = !!(sub && sub.time);
+    btn.classList.toggle('done', done);
+    btn.textContent = done ? '已提交 ✓' : '提交';
+    btn.title = done ? `${data.dept} 已於 ${sub.time} 提交(${sub.who})` : `提交本週${(data && data.dept) || ''}週報`;
+  }
+
+  async function refreshSubmitState() {
+    const btn = $('submitBtn');
+    btn.hidden = !(CFG.SUBMIT_URL && state.source === 'drive');
+    if (btn.hidden) return;
+    try { showSubmitState(await callSubmit('status')); } catch { /* 狀態取不到時維持「提交」 */ }
+  }
+
+  async function submitWeekly() {
+    if (!CFG.SUBMIT_URL) return;
+    if (dirtyCount()) {
+      await save();
+      if (dirtyCount()) return toast('有修改尚未儲存,請先儲存後再提交', 4000);
+    }
+    const btn = $('submitBtn');
+    const was = btn.textContent;
+    const ok = await confirmDialog('提交週報', was.startsWith('已提交')
+      ? '本週已提交過,要以目前內容重新提交嗎?' : '確認本週週報已更新完成,要提交嗎?', [
+      { label: '取消', value: false },
+      { label: '提交', value: true, cls: 'btn-primary' },
+    ]);
+    if (!ok) return;
+    btn.disabled = true;
+    busy('提交中…');
+    try {
+      const data = await callSubmit('submit');
+      showSubmitState(data);
+      toast(`✅ 已提交${data.dept}週報(${data.submission.time})`, 4000);
+    } catch (err) {
+      toast('提交失敗:' + (err.message || err), 6000);
+    } finally {
+      busy('');
+      btn.disabled = false;
+    }
+  }
+  $('submitBtn').onclick = submitWeekly;
 
   // ---------- 彙整 / 匯出 PDF ----------
   const deptFiles = () => [...new Set(CFG.SHEETS.map((c) => c.file))];
