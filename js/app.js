@@ -414,6 +414,8 @@
     // 「專案主檔」本身是選單來源,其專案名稱要能自由輸入
     const projCol = m.name === CFG.PROJECT_SOURCE.sheet ? null : m.columns.find(isProjectCol);
     const projList = projCol ? await projectOptions(projCol) : [];
+    // 有預計/實際進度與目前狀態欄的工作表,狀態依進度自動判斷
+    const autoStatus = !!(m.roles.status && m.roles.plan && m.roles.actual);
     editing = { rec, insertAt };
     const isNew = insertAt != null;
     const idx = isNew ? insertAt : m.records.indexOf(rec);
@@ -465,6 +467,15 @@
         input.id = id;
         input.value = /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? v : '';
         if (v && !input.value) { input.type = 'text'; input.value = v; }
+      } else if (autoStatus && col === m.roles.status) {
+        // 目前狀態:依進度自動判斷;「待確認」「取消」手動一鍵輸入
+        input = document.createElement('div');
+        input.className = 'opt-wrap';
+        input.innerHTML = `<input id="${id}" type="text" value="${esc(v ?? '')}">` +
+          '<div class="opt-chips">' +
+          CFG.STATUS_MANUAL.map((o) => `<button type="button" data-status="${esc(o)}" class="${String(v) === o ? 'on' : ''}">${esc(o)}</button>`).join('') +
+          '<button type="button" data-status="" class="auto">↻ 依進度</button></div>' +
+          '<div class="hint-line">依預計/實際完成進度自動判斷;「待確認」「取消」請按上方按鈕</div>';
       } else if (col.options && col.options.length) {
         input = document.createElement('div');
         input.className = 'opt-wrap';
@@ -498,11 +509,50 @@
       wrap.appendChild(input);
       box.appendChild(wrap);
     }
+    if (autoStatus) wireAutoStatus(m);
     $('editor').hidden = false;
     document.body.classList.add('noscroll');
     box.scrollTop = 0;
     for (const ta of box.querySelectorAll('textarea')) autoGrow(ta);
   }
+  // 依進度判斷狀態:實際=100% → 已完成;實際<預計 → 延遲;預計=0% → 未開始;預計>0% → 進行中
+  // 進度兩欄都空白時不判斷(回傳 null)
+  function statusFromProgress(planPct, actualPct) {
+    if (planPct === '' && actualPct === '') return null;
+    const plan = planPct === '' ? 0 : Number(planPct);
+    const actual = actualPct === '' ? 0 : Number(actualPct);
+    if (actual >= 100) return CFG.STATUS_AUTO.done;
+    if (actual < plan) return CFG.STATUS_AUTO.late;
+    if (plan <= 0) return CFG.STATUS_AUTO.notStarted;
+    return CFG.STATUS_AUTO.doing;
+  }
+
+  function wireAutoStatus(m) {
+    const statusEl = $('f_' + m.roles.status.idx);
+    const planEl = $('f_' + m.roles.plan.idx);
+    const actualEl = $('f_' + m.roles.actual.idx);
+    const chips = statusEl.parentElement.querySelectorAll('[data-status]');
+    const mark = () => chips.forEach((b) => b.classList.toggle('on', !!b.dataset.status && b.dataset.status === statusEl.value));
+    const apply = () => {
+      const s = statusFromProgress(planEl.value.trim(), actualEl.value.trim());
+      if (s) statusEl.value = s;
+      mark();
+    };
+    // 數字欄與滑桿任一變動都重新判斷
+    for (const el of [planEl, actualEl]) {
+      el.addEventListener('input', apply);
+      const range = el.parentElement.querySelector('input[type="range"]');
+      if (range) range.addEventListener('input', apply);
+    }
+    chips.forEach((b) => b.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (b.dataset.status) { statusEl.value = b.dataset.status; mark(); } else apply();
+    }));
+    statusEl.addEventListener('input', mark);
+    // 新增的列直接依進度判斷;既有的列保留原狀態(例如已設為待確認/取消),改動進度時才重新判斷
+    if (editing && editing.insertAt != null) apply();
+  }
+
   function autoGrow(ta) {
     ta.style.height = 'auto';
     ta.style.height = Math.min(ta.scrollHeight + 2, 320) + 'px';

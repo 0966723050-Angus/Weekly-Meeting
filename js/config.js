@@ -39,6 +39,10 @@ window.APP_CONFIG = {
   EXPORT_DIR_HINT: 'C:\\ATK\\週會\\彙整',
   DEFAULT_SHEET: '生管部',
 
+  // 「目前狀態」依進度自動判斷的結果(用字與 Excel 狀態下拉選單一致),以及只能手動一鍵輸入的狀態
+  STATUS_AUTO: { done: '已完成', late: '延遲', notStarted: '未開始', doing: '進行中' },
+  STATUS_MANUAL: ['待確認', '取消'],
+
   // 「提交週報」:Google Apps Script 網頁應用程式網址(由它以管理者身分在生管部檔案「週報提交」註記)
   // 部署後把網址貼在這裡;留空時不顯示「提交」鍵
   SUBMIT_URL: 'https://script.google.com/macros/s/AKfycbyJv2457hM5LIgRJDSuvpmKm7Fxy2TeRwp8hzmmUxjGeOfjYShuQv3KzXULZU285I68tg/exec',
