@@ -27,6 +27,15 @@ jobs:
         run: |
           mkdir -p _site
           cp -r index.html manifest.webmanifest sw.js css js icons _site/
+      - name: Stamp version
+        # 以 commit 代碼作為版本號:App 比對 version.json 發現新版就強制重新載入;
+        # 同時更新靜態檔的 ?v= 與 Service Worker 快取名稱,避免讀到舊檔
+        run: |
+          V="${GITHUB_SHA::8}"
+          echo "{\"version\":\"$V\"}" > _site/version.json
+          sed -i "s/__BUILD_VERSION__/$V/" _site/js/config.js
+          sed -i -E "s/\?v=[0-9a-z]+/?v=$V/g" _site/index.html
+          sed -i -E "s/atk-weekly-[0-9a-z]+/atk-weekly-$V/" _site/sw.js
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

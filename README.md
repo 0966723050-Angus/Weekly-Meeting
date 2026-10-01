@@ -40,6 +40,12 @@
 部門/提交人/提交時間/週次;已提交顯示「已提交 ✓」。每週二 10:00 由 Apps Script 清空。
 Apps Script 程式與負責人名單放在 repo 外(`Weekly-Meeting-Reminder`),不公開。
 
+## 新版強制更新
+
+部署時 GitHub Actions 以 commit 代碼產生 `version.json`,並寫入 `js/config.js` 的 `APP_VERSION`、
+`index.html` 的 `?v=`、`sw.js` 的快取名稱(原始碼中為 `dev` / `__BUILD_VERSION__`,不需手動改)。
+App 開啟時、切回前景時、每 5 分鐘比對版本,不同就自動重新載入;有未儲存修改時先「儲存並更新」(不可略過)。
+
 ## 權限(由雲端硬碟共用設定決定)
 
 每個部門一個檔案,誰能開哪個檔案完全由 Google 雲端硬碟的共用權限控制,App 內不存任何名單。

@@ -39,6 +39,10 @@ window.APP_CONFIG = {
   EXPORT_DIR_HINT: 'C:\\ATK\\週會\\彙整',
   DEFAULT_SHEET: '生管部',
 
+  // 程式版本(部署時由 GitHub Actions 換成 commit 代碼);與網站上的 version.json 不同時強制重新載入
+  APP_VERSION: '__BUILD_VERSION__',
+  VERSION_CHECK_MINUTES: 5,
+
   // 「目前狀態」依進度自動判斷的結果(用字與 Excel 狀態下拉選單一致),以及只能手動一鍵輸入的狀態
   STATUS_AUTO: { done: '已完成', late: '延遲', notStarted: '未開始', doing: '進行中' },
   STATUS_MANUAL: ['待確認', '取消'],

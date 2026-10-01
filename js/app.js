@@ -1030,6 +1030,54 @@
     if (dirtyCount()) { e.preventDefault(); e.returnValue = ''; }
   });
 
+  // ---------- 新版偵測:強制重新載入 ----------
+  // 開啟時、切回 App 時、每隔幾分鐘檢查 version.json;版本不同就重新載入。
+  // 有未儲存的修改時先要求「儲存並更新」(不可略過),避免修改遺失。
+  let updatePending = false;
+  async function checkForUpdate() {
+    if (updatePending || CFG.APP_VERSION.startsWith('__')) return; // 本機開發版不檢查
+    let latest;
+    try {
+      const resp = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
+      if (!resp.ok) return;
+      latest = (await resp.json()).version;
+    } catch { return; }
+    if (!latest || latest === CFG.APP_VERSION) return;
+    updatePending = true;
+    if (!dirtyCount()) return reloadToVersion(latest);
+    // 有未儲存的修改:只能「儲存並更新」
+    for (;;) {
+      await confirmDialog('程式已更新', '「ATK部門週報」有新版本,必須更新後才能繼續使用。\n目前有尚未儲存的修改,將先儲存再更新。', [
+        { label: '儲存並更新', value: true, cls: 'btn-primary' },
+      ]);
+      await save();
+      if (!dirtyCount()) return reloadToVersion(latest);
+      toast('儲存未完成,請處理後再按一次「儲存並更新」', 5000);
+    }
+  }
+
+  function reloadToVersion(v) {
+    toast('程式已更新,正在重新載入…', 3000);
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.getRegistration().then((r) => r && r.update()).catch(() => {});
+    }
+    // 網址加上版本參數,確保瀏覽器不會用舊的快取頁面
+    const url = new URL(location.href);
+    url.searchParams.set('u', v);
+    setTimeout(() => location.replace(url.toString()), 600);
+  }
+
+  // 載入新版後把網址上的版本參數拿掉
+  if (new URLSearchParams(location.search).has('u')) {
+    const url = new URL(location.href);
+    url.searchParams.delete('u');
+    history.replaceState(null, '', url.pathname + url.search + url.hash);
+  }
+  checkForUpdate();
+  setInterval(checkForUpdate, CFG.VERSION_CHECK_MINUTES * 60000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForUpdate(); });
+  window.addEventListener('focus', checkForUpdate);
+
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
