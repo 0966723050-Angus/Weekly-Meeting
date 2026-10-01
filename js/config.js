@@ -41,5 +41,5 @@ window.APP_CONFIG = {
 
   // 「提交週報」:Google Apps Script 網頁應用程式網址(由它以管理者身分在生管部檔案「週報提交」註記)
   // 部署後把網址貼在這裡;留空時不顯示「提交」鍵
-  SUBMIT_URL: '',
+  SUBMIT_URL: 'https://script.google.com/macros/s/AKfycbyJv2457hM5LIgRJDSuvpmKm7Fxy2TeRwp8hzmmUxjGeOfjYShuQv3KzXULZU285I68tg/exec',
 };
