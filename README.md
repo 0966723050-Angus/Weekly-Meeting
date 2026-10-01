@@ -35,9 +35,9 @@
 
 ## 提交週報
 
-頁首「提交」鍵(儲存鍵旁):先儲存未存的修改,再呼叫 Google Apps Script 網頁應用程式
+頁首「週報提交」鍵(儲存鍵旁):先儲存未存的修改,再呼叫 Google Apps Script 網頁應用程式
 (`js/config.js` 的 `SUBMIT_URL`,以管理者身分執行),在生管部檔案「週報提交」工作表註記
-部門/提交人/提交時間/週次;已提交顯示「已提交 ✓」。每週二 10:00 由 Apps Script 清空。
+部門/提交人/提交時間/週次;已提交顯示「週報已提交 ✓」。每週二 10:00 由 Apps Script 清空。
 Apps Script 程式與負責人名單放在 repo 外(`Weekly-Meeting-Reminder`),不公開。
 
 ## 新版強制更新

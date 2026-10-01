@@ -707,7 +707,7 @@
     const sub = data && data.submission;
     const done = !!(sub && sub.time);
     btn.classList.toggle('done', done);
-    btn.textContent = done ? '已提交 ✓' : '提交';
+    btn.textContent = done ? '週報已提交 ✓' : '週報提交';
     btn.title = done ? `${data.dept} 已於 ${sub.time} 提交(${sub.who})` : `提交本週${(data && data.dept) || ''}週報`;
   }
 
@@ -726,10 +726,10 @@
     }
     const btn = $('submitBtn');
     const was = btn.textContent;
-    const ok = await confirmDialog('提交週報', was.startsWith('已提交')
+    const ok = await confirmDialog('提交週報', was.includes('已提交')
       ? '本週已提交過,要以目前內容重新提交嗎?' : '確認本週週報已更新完成,要提交嗎?', [
       { label: '取消', value: false },
-      { label: '提交', value: true, cls: 'btn-primary' },
+      { label: '確認提交', value: true, cls: 'btn-primary' },
     ]);
     if (!ok) return;
     btn.disabled = true;
