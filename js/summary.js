@@ -15,6 +15,7 @@
   const PCT = new Set([6, 7]);          // 百分比欄(0 起算)
   const CENTER = new Set([3, 6, 7, 8, 9, 10]);
   const WRAP = new Set([2, 4, 5, 9, 10]);
+  const NO_WRAP = [0, 1, 3, 6, 7, 8]; // PDF 中不換行的短欄位:部門、週次、負責人、預計/實際進度、狀態
 
   const weekKey = (label) => { const m = /(\d{4})-W(\d{1,2})/.exec(String(label || '')); return m ? `${m[1]}-${m[2].padStart(2, '0')}` : ''; };
 
@@ -106,7 +107,14 @@
     return fflate.zipSync(enc, { level: 6 });
   }
 
-  // ---------- PDF(單一頁面:頁寬 A3,頁高隨內容)----------
+  // ---------- PDF(真正的文字與格線,其他程式可讀取表格內容)----------
+  // 以 pdf-lib 直接繪製表格,嵌入繁體中文字型(只嵌入用到的字),PDF 內含可擷取的文字層。
+  // 版面:頁寬 A3,頁高依內容延長(所有欄位與資料列在同一頁);超過 PDF 頁面上限才分頁。
+  const PDF_LIB = 'https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js';
+  const FONTKIT = 'https://cdn.jsdelivr.net/npm/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js';
+  // Noto Sans TC(TrueType;OpenType/CFF 版的中文字型子集化有已知問題)
+  const FONT_URL = 'https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/notosanstc/NotoSansTC%5Bwght%5D.ttf';
+
   function loadScript(src) {
     return new Promise((resolve, reject) => {
       if (document.querySelector(`script[src="${src}"]`)) return resolve();
@@ -118,49 +126,182 @@
     });
   }
 
-  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const pct = (v) => (typeof v === 'number' ? Math.round(v * 100) + '%' : esc(v));
-
-  async function buildPdf(rows, title) {
-    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
-    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
-    const { jsPDF } = window.jspdf;
-
-    // 單頁:頁寬 A3(297mm),頁高依內容延長,所有欄位與資料列在同一頁
-    const PAGE_W = 1600;
-    const MARGIN_MM = 12;
-    const contentWmm = 297 - MARGIN_MM * 2;
-    const total = WIDTHS.reduce((a, b) => a + b, 0);
-    const colgroup = '<colgroup>' + WIDTHS.map((w) => `<col style="width:${(w / total * 100).toFixed(3)}%">`).join('') + '</colgroup>';
-    const css = `font-family:"PMingLiU","MingLiU","PingFang TC","Noto Serif TC","Microsoft JhengHei",serif;font-size:13px;color:#000;`;
-    const td = (v, i) => {
-      const align = CENTER.has(i) || PCT.has(i) ? 'center' : 'left';
-      const text = PCT.has(i) ? pct(v) : esc(v).replace(/\n/g, '<br>');
-      return `<td style="border:1px solid #000;padding:3px 4px;vertical-align:middle;text-align:${align};word-break:break-word;height:128px;box-sizing:border-box">${text}</td>`;
-    };
-    const th = HEADERS.map((h) => `<th style="border:1px solid #000;background:#D9EAF7;padding:4px;font-weight:bold;text-align:center">${esc(h)}</th>`).join('');
-
-    const host = document.createElement('div');
-    host.style.cssText = `position:fixed;left:-99999px;top:0;width:${PAGE_W}px;background:#fff`;
-    document.body.appendChild(host);
-    try {
-      host.innerHTML = `<table style="width:100%;border-collapse:collapse;table-layout:fixed;${css}">${colgroup}` +
-        `<thead><tr>${th}</tr></thead><tbody>` + rows.map((r) => `<tr>${r.map(td).join('')}</tr>`).join('') + '</tbody></table>';
-      // 手機瀏覽器的畫布面積上限約 1600 萬像素,資料多時自動降低解析度
-      const hpx = host.getBoundingClientRect().height;
-      const scale = Math.max(0.6, Math.min(1.6, Math.sqrt(15e6 / (PAGE_W * hpx))));
-      const canvas = await html2canvas(host, { scale, backgroundColor: '#ffffff', logging: false });
-      const img = canvas.toDataURL('image/jpeg', 0.8);
-      const hmm = canvas.height / canvas.width * contentWmm;
-      const pageH = Math.max(hmm + MARGIN_MM * 2, 100);
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [297, pageH], compress: true });
-      pdf.setProperties({ title });
-      pdf.addImage(img, 'JPEG', MARGIN_MM, MARGIN_MM, contentWmm, hmm);
-      return new Uint8Array(pdf.output('arraybuffer'));
-    } finally {
-      host.remove();
+  // 字型約 12MB:第一次下載後存入瀏覽器快取(Cache Storage),之後直接讀取
+  let fontBytesPromise = null;
+  function loadFontBytes() {
+    if (!fontBytesPromise) {
+      fontBytesPromise = (async () => {
+        let cache = null;
+        try { cache = await caches.open('wm-fonts-v1'); } catch { /* 不支援時直接下載 */ }
+        const hit = cache && await cache.match(FONT_URL);
+        if (hit) return hit.arrayBuffer();
+        const r = await fetch(FONT_URL);
+        if (!r.ok) throw new Error('無法下載中文字型');
+        if (cache) await cache.put(FONT_URL, r.clone()).catch(() => {});
+        return r.arrayBuffer();
+      })().catch((e) => { fontBytesPromise = null; throw e; });
     }
+    return fontBytesPromise;
   }
 
-  window.Summary = { ORDER, HEADERS, collectRows, buildXlsx, buildPdf };
+  // 背景預先下載字型與 PDF 元件(可彙整的帳號登入後呼叫)
+  function prefetchPdfAssets() {
+    loadFontBytes().catch(() => {});
+    loadScript(PDF_LIB).catch(() => {});
+    loadScript(FONTKIT).catch(() => {});
+  }
+
+  const cellText = (v, i) => {
+    if (v == null || v === '') return '';
+    if (PCT.has(i)) return typeof v === 'number' ? Math.round(v * 100) + '%' : String(v);
+    return String(v).replace(/\r\n?/g, '\n').replace(/\t/g, ' ');
+  };
+
+  // 依欄寬自動換行(中文逐字、英數以字為單位)
+  function wrapLines(text, font, size, maxW) {
+    const out = [];
+    for (const para of String(text).split('\n')) {
+      if (!para) { out.push(''); continue; }
+      const tokens = para.match(/[A-Za-z0-9_.,:;!?%/+\-()'"#&@]+|\s+|./gu) || [];
+      let line = '';
+      for (const tk of tokens) {
+        const tryLine = line + tk;
+        if (font.widthOfTextAtSize(tryLine, size) <= maxW) { line = tryLine; continue; }
+        if (line.trim()) out.push(line.replace(/\s+$/, ''));
+        line = tk.trimStart();
+        // 單一 token 太長:逐字切
+        while (line && font.widthOfTextAtSize(line, size) > maxW) {
+          let n = line.length;
+          while (n > 1 && font.widthOfTextAtSize(line.slice(0, n), size) > maxW) n--;
+          out.push(line.slice(0, n));
+          line = line.slice(n);
+        }
+      }
+      out.push(line.replace(/\s+$/, ''));
+    }
+    while (out.length > 1 && out[out.length - 1] === '') out.pop();
+    while (out.length > 1 && out[0] === '') out.shift();
+    return out;
+  }
+
+  async function buildPdf(rows, title) {
+    await loadScript(PDF_LIB);
+    await loadScript(FONTKIT);
+    const { PDFDocument, rgb } = window.PDFLib;
+    const fontBytes = await loadFontBytes();
+
+    const doc = await PDFDocument.create();
+    doc.registerFontkit(window.fontkit);
+    const font = await doc.embedFont(fontBytes, { subset: true });
+    doc.setTitle(title);
+    doc.setSubject('ATK部門週報 各部工作彙整');
+    doc.setCreator('ATK部門週報');
+    doc.setLanguage('zh-TW');
+
+    // 單位:pt。A3 寬 297mm = 841.89pt
+    const PAGE_W = 841.89;
+    const M = 34; // 約 12mm 邊界
+    const tableW = PAGE_W - M * 2;
+    const totalW = WIDTHS.reduce((a, b) => a + b, 0);
+    const colW = WIDTHS.map((w) => w / totalW * tableW);
+    const SIZE = 8.5;
+    const HEAD_SIZE = 8.5;
+    const PADX = 3;
+    // 短欄位(部門、週次、負責人、進度、狀態)不換行,寬度不足時向兩個工作內容欄借
+    const texts = rows.map((r) => r.map(cellText));
+    for (const i of NO_WRAP) {
+      // 資料值不換行;較長的標題可折成兩行(取一半寬度),5 字以內的標題不折
+      const head = HEADERS[i];
+      const headHalf = font.widthOfTextAtSize(head.length <= 5 ? head : head.slice(0, Math.ceil(head.length / 2)), HEAD_SIZE);
+      const widest = Math.max(headHalf,
+        ...texts.map((r) => Math.max(0, ...r[i].split('\n').map((p) => font.widthOfTextAtSize(p, SIZE)))));
+      colW[i] = Math.max(colW[i], widest + PADX * 2 + 1);
+    }
+    // 總寬超過頁寬時,由可換行的欄位等比例縮小;仍不夠才全部等比例縮放
+    const sumW = () => colW.reduce((a, b) => a + b, 0);
+    let over = sumW() - tableW;
+    if (over > 0) {
+      const flex = [2, 4, 5, 9, 10, 11];
+      const minW = (i) => (i === 4 || i === 5 ? 110 : 48);
+      const room = flex.reduce((a, i) => a + Math.max(0, colW[i] - minW(i)), 0);
+      if (room > 0) for (const i of flex) colW[i] -= Math.min(colW[i] - minW(i), over * Math.max(0, colW[i] - minW(i)) / room);
+      over = sumW() - tableW;
+      if (over > 0.5) { const k = tableW / sumW(); for (let i = 0; i < colW.length; i++) colW[i] *= k; }
+    }
+    const colX = colW.map((_, i) => M + colW.slice(0, i).reduce((a, b) => a + b, 0));
+    const PADY = 4;
+    const MIN_ROW = 26;
+    const MAX_PAGE_H = 14000; // PDF 頁面高度上限 14400pt
+
+    const layoutRow = (cells, size) => {
+      const lines = cells.map((t, i) => wrapLines(t, font, size, colW[i] - PADX * 2));
+      const h = Math.max(MIN_ROW, Math.max(...lines.map((l) => l.length)) * size * 1.35 + PADY * 2);
+      return { lines, h };
+    };
+    const head = layoutRow(HEADERS, HEAD_SIZE);
+    const body = texts.map((r) => layoutRow(r, SIZE));
+
+    // 依高度分頁(一般只有一頁)
+    const pages = [];
+    let cur = [];
+    let h = head.h;
+    for (const row of body) {
+      if (cur.length && M * 2 + h + row.h > MAX_PAGE_H) { pages.push(cur); cur = []; h = head.h; }
+      cur.push(row);
+      h += row.h;
+    }
+    pages.push(cur);
+
+    const black = rgb(0, 0, 0);
+    const headFill = rgb(0xD9 / 255, 0xEA / 255, 0xF7 / 255);
+    const drawRow = (page, row, top, size, fill, isHead) => {
+      row.lines.forEach((lines, i) => {
+        page.drawRectangle({
+          x: colX[i], y: top - row.h, width: colW[i], height: row.h,
+          borderColor: black, borderWidth: 0.6, color: fill || undefined,
+        });
+        const blockH = lines.length * size * 1.35;
+        let y = top - (row.h - blockH) / 2 - size; // 垂直置中
+        const center = isHead || CENTER.has(i) || PCT.has(i);
+        for (const ln of lines) {
+          if (ln) {
+            const w = font.widthOfTextAtSize(ln, size);
+            const x = center ? colX[i] + (colW[i] - w) / 2 : colX[i] + PADX;
+            // 每段文字只畫一次,確保擷取出來的文字不重複
+            page.drawText(ln, { x, y: y + size * 0.15, size, font, color: black });
+          }
+          y -= size * 1.35;
+        }
+      });
+    };
+
+    // 附加 CSV(與表格相同的資料),供程式直接讀取
+    const csv = '﻿' + [HEADERS, ...texts].map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+    await doc.attach(new TextEncoder().encode(csv), `${title}.csv`, {
+      mimeType: 'text/csv', description: '各部工作彙整資料(與 PDF 表格內容相同)',
+      creationDate: new Date(), modificationDate: new Date(),
+    });
+
+    // 字型預設為 Thin 字重:以「填滿+描邊」繪製文字加粗(只影響外觀,擷取的文字不變)
+    const { setTextRenderingMode, TextRenderingMode, setLineWidth, setStrokingRgbColor } = window.PDFLib;
+    const textWeight = (page, w) => page.pushOperators(
+      setTextRenderingMode(TextRenderingMode.FillAndOutline), setLineWidth(w), setStrokingRgbColor(0, 0, 0));
+
+    for (const pageRows of pages) {
+      const pageH = M * 2 + head.h + pageRows.reduce((a, r) => a + r.h, 0);
+      const page = doc.addPage([PAGE_W, pageH]);
+      let top = pageH - M;
+      textWeight(page, 0.75); // 標題較粗
+      drawRow(page, head, top, HEAD_SIZE, headFill, true);
+      textWeight(page, 0.4);
+      top -= head.h;
+      for (const row of pageRows) {
+        drawRow(page, row, top, SIZE, null, false);
+        top -= row.h;
+      }
+    }
+    return await doc.save({ useObjectStreams: false }); // 不壓縮物件串流,相容較舊的 PDF 解析程式
+  }
+
+  window.Summary = { ORDER, HEADERS, collectRows, buildXlsx, buildPdf, prefetchPdfAssets };
 })();

@@ -98,6 +98,7 @@
       return;
     }
     $('summaryBar').hidden = !canSummarize();
+    if (canSummarize()) setTimeout(() => Summary.prefetchPdfAssets(), 3000); // 預先下載 PDF 字型
     const last = lsGet(LS_SHEET);
     const pick = [state.current, last, CFG.DEFAULT_SHEET, ...CFG.SHEETS.map((c) => c.name)]
       .find((n) => n && sheetCfg(n) && sheetAvailable(n));
