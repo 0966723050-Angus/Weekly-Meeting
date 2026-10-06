@@ -33,6 +33,7 @@
       if (weekCol) for (const r of recs) { const k = weekKey(r.vals[weekCol.idx]); if (k > latest) latest = k; }
       for (const r of recs) {
         if (weekCol && latest && weekKey(r.vals[weekCol.idx]) !== latest) continue;
+        if (m.flagIdx != null && String(r.vals[m.flagIdx] ?? '').trim() !== '') continue; // 不列入週報
         rows.push(HEADERS.map((h, i) => {
           if (i === 0) return sheet;
           const c = colOf[h];

@@ -63,12 +63,27 @@
       if (cfg.file !== key) continue;
       if (!wb.sheetPaths[cfg.name]) continue;
       const m = wb.readSheet(cfg);
+      setupExcludeColumn(m);
       m.roles = detectRoles(m.columns);
       models[cfg.name] = m;
     }
     state.files[key] = { key, fileId, name, meta, wb, models, origSst: wb.text('xl/sharedStrings.xml') };
     return state.files[key];
   }
+
+  // 「不列入週報」:各部門工作表最後一欄之後的欄位,核取時寫入 V;彙整時跳過該列
+  function setupExcludeColumn(m) {
+    if (!CFG.EXCLUDE.sheets.includes(m.name) || !m.columns.length) return;
+    const existing = m.columns.find((c) => c.title === CFG.EXCLUDE.title);
+    if (existing) {
+      m.flagIdx = existing.idx;
+      m.columns = m.columns.filter((c) => c !== existing); // 不當一般欄位編輯
+    } else {
+      m.flagIdx = Math.max(...m.columns.map((c) => c.idx)) + 1;
+    }
+    m.extraHeaders = [{ idx: m.flagIdx, title: CFG.EXCLUDE.title }]; // 儲存時若標題列沒有就補上
+  }
+  const isExcluded = (m, rec) => m.flagIdx != null && String(rec.vals[m.flagIdx] ?? '').trim() !== '';
 
   // 此工作表是否可使用(有權限的檔案裡確實有這張表)
   function sheetAvailable(name) {
@@ -278,12 +293,13 @@
     const R = m.roles;
     const v = (col) => (col ? valText(col, rec.vals[col.idx]) : '');
     const el = document.createElement('article');
-    el.className = 'card' + (rec.dirty.size || !rec.origRow ? ' changed' : '');
+    el.className = 'card' + (rec.dirty.size || !rec.origRow ? ' changed' : '') + (isExcluded(m, rec) ? ' excluded' : '');
     const rowNo = m.dataStart + i;
     let html = '<div class="card-top">';
     html += `<span class="rowno">第 ${rowNo} 列</span>`;
     if (R.week && v(R.week)) html += `<span class="chip">${esc(v(R.week))}</span>`;
     if (R.status && v(R.status)) html += `<span class="status ${statusClass(v(R.status))}">${esc(v(R.status))}</span>`;
+    if (isExcluded(m, rec)) html += `<span class="chip chip-excluded">${esc(CFG.EXCLUDE.title)}</span>`;
     html += '<button type="button" class="more" aria-label="列動作">⋯</button></div>';
     html += `<h3 class="card-title">${esc(v(R.title) || '(未填)')}</h3>`;
     const sub = [v(R.code), v(R.owner)].filter(Boolean).join(' · ');
@@ -424,6 +440,13 @@
     $('editorDelete').hidden = isNew;
     const box = $('editorFields');
     box.innerHTML = '';
+    if (m.flagIdx != null) {
+      const flag = document.createElement('label');
+      flag.className = 'exclude-field';
+      flag.innerHTML = `<input type="checkbox" id="f_exclude"${isExcluded(m, rec) ? ' checked' : ''}>` +
+        `<span><b>${esc(CFG.EXCLUDE.title)}</b><small>勾選後,「彙整各部工作」會跳過這一列</small></span>`;
+      box.appendChild(flag);
+    }
     for (const col of m.columns) {
       const v = rec.vals[col.idx];
       const id = 'f_' + col.idx;
@@ -594,6 +617,14 @@
         if (String(nv) !== String(ov) || isNew) rec.dirty.add(col.idx);
         if (String(nv) !== String(ov)) changed++;
       }
+    }
+    if (m.flagIdx != null) {
+      const want = $('f_exclude').checked;
+      if (want !== isExcluded(m, rec)) {
+        if (want) rec.vals[m.flagIdx] = CFG.EXCLUDE.mark; else delete rec.vals[m.flagIdx];
+        rec.dirty.add(m.flagIdx);
+        changed++;
+      } else if (isNew && want) rec.dirty.add(m.flagIdx);
     }
     if (isNew) {
       m.records.splice(insertAt, 0, rec);

@@ -350,12 +350,35 @@
       const after = kids(sheetData, 'row').find((el) => Number(el.getAttribute('r')) > regionEnd) || null;
       for (const row of built) sheetData.insertBefore(row, after);
 
+      // 補上標題列中尚不存在的欄位標題(例如「不列入週報」),樣式沿用左邊的標題儲存格
+      let maxCol = 0;
+      for (const h of model.extraHeaders || []) {
+        maxCol = Math.max(maxCol, h.idx);
+        const hr = model.cfg.headerRow;
+        let rowEl = kids(sheetData, 'row').find((el) => Number(el.getAttribute('r')) === hr);
+        if (!rowEl) continue;
+        const cells = kids(rowEl, 'c');
+        const ref = idxToCol(h.idx) + hr;
+        let c = cells.find((x) => x.getAttribute('r') === ref);
+        if (c && String(this.cellValue(c) || '').trim()) continue;
+        const left = cells.filter((x) => splitRef(x.getAttribute('r')).col < h.idx && String(this.cellValue(x) || '').trim()).pop();
+        const fresh = doc.createElementNS(NS, 'c');
+        fresh.setAttribute('r', ref);
+        const s = left && left.getAttribute('s');
+        if (s != null) fresh.setAttribute('s', s);
+        this._setValue(doc, fresh, h.title, null);
+        if (c) rowEl.replaceChild(fresh, c);
+        else rowEl.insertBefore(fresh, cells.find((x) => splitRef(x.getAttribute('r')).col > h.idx) || null);
+      }
+
       // 更新 dimension
       const dim = doc.getElementsByTagNameNS(NS, 'dimension')[0];
       if (dim) {
         const [a, b] = (dim.getAttribute('ref') || 'A1').split(':');
         const end = splitRef(b || a);
-        if (end && end.row < regionEnd) dim.setAttribute('ref', `${a}:${idxToCol(end.col)}${regionEnd}`);
+        if (end && (end.row < regionEnd || end.col < maxCol)) {
+          dim.setAttribute('ref', `${a}:${idxToCol(Math.max(end.col, maxCol))}${Math.max(end.row, regionEnd)}`);
+        }
       }
 
       // 部分瀏覽器序列化時會自帶 XML 宣告,部分不會 → 統一去掉後再補上標準宣告

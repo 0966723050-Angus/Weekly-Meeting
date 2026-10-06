@@ -322,3 +322,16 @@ main { max-width: 860px; margin: 0 auto; padding: 12px 16px calc(96px + var(--sa
 /* 目前狀態:自動判斷說明與「依進度」鍵 */
 .hint-line { font-size: 12px; color: var(--muted); margin-top: 4px; }
 .opt-chips button.auto { border-style: dashed; color: var(--muted); }
+
+/* 不列入週報 */
+.exclude-field {
+  display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--border);
+}
+.exclude-field input { width: 22px; height: 22px; flex: none; accent-color: var(--danger); margin: 0; }
+.exclude-field span { display: flex; flex-direction: column; min-width: 0; }
+.exclude-field b { font-size: 15px; }
+.exclude-field small { font-size: 12px; color: var(--muted); }
+.exclude-field:has(input:checked) { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, var(--surface)); }
+.card.excluded { opacity: .55; }
+.chip.chip-excluded { color: var(--danger); border-color: var(--danger); }
