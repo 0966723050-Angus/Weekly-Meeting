@@ -26,6 +26,7 @@ window.APP_CONFIG = {
     { name: '週報名單', file: '生管部', headerRow: 1 },
   ],
   FILE_PREFIX: 'weekly_meeting_template_',
+  ROSTER_SHEET: '週報名單',
 
   // 編輯時「專案名稱」下拉選單的來源:生管部檔案「專案主檔」B4 以下
   PROJECT_SOURCE: { file: '生管部', sheet: '專案主檔', range: '專案主檔!$B$4:$B$5000' },

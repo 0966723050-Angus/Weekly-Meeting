@@ -48,6 +48,28 @@
       $('confirmBox').hidden = false;
     });
   }
+  // 勾選清單對話框:items = [{ key, html, checked }],回傳勾選的 key 陣列;取消回傳 null
+  function checklistDialog(title, intro, items, okLabel) {
+    return new Promise((resolve) => {
+      $('confirmTitle').textContent = title;
+      const msg = $('confirmMsg');
+      msg.innerHTML = (intro ? `<div class="cl-intro">${esc(intro)}</div>` : '') +
+        '<div class="cl-list">' + items.map((it, i) =>
+          `<label class="cl-item"><input type="checkbox" data-i="${i}"${it.checked === false ? '' : ' checked'}><span>${it.html}</span></label>`).join('') + '</div>';
+      const box = $('confirmBtns');
+      box.innerHTML = '';
+      const close = (v) => { $('confirmBox').hidden = true; msg.textContent = ''; resolve(v); };
+      const cancel = document.createElement('button');
+      cancel.type = 'button'; cancel.className = 'btn btn-ghost'; cancel.textContent = '取消';
+      cancel.onclick = () => close(null);
+      const ok = document.createElement('button');
+      ok.type = 'button'; ok.className = 'btn btn-danger'; ok.textContent = okLabel;
+      ok.onclick = () => close([...msg.querySelectorAll('input[type=checkbox]:checked')].map((c) => items[+c.dataset.i].key));
+      box.append(cancel, ok);
+      $('confirmBox').hidden = false;
+    });
+  }
+
   function lsGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
   function lsSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
   function esc(s) {
@@ -247,6 +269,7 @@
   function renderSheet(resetFilter) {
     const m = model();
     const R = m.roles;
+    $('permBar').hidden = !(m.name === CFG.ROSTER_SHEET && CFG.SUBMIT_URL && canSummarize());
     const sel = $('weekFilter');
     if (resetFilter) {
       $('searchBox').value = '';
@@ -711,9 +734,19 @@
     const dirty = Object.values(state.files).filter((f) => fileDirty(f));
     if (!dirty.length) return;
     let saved = 0;
+    const rosterFile = dirty.find((f) => f.models[CFG.ROSTER_SHEET] && f.models[CFG.ROSTER_SHEET].changeCount);
     try {
       for (const f of dirty) if (await saveFile(f)) saved++;
       if (saved) toast(saved === dirty.length ? '✅ 已儲存到雲端硬碟' : `已儲存 ${saved} 個檔案`);
+      // 名單有變更且已存檔 → 詢問是否同步檔案權限
+      if (rosterFile && !fileDirty(state.files[rosterFile.key]) && CFG.SUBMIT_URL && canSummarize()) {
+        busy('');
+        const go = await confirmDialog('同步檔案權限?', '「週報名單」已更新。要依新名單調整各部門 Excel 檔的編輯權限嗎?(執行前會先列出變更讓你確認)', [
+          { label: '稍後', value: false },
+          { label: '檢查權限', value: true, cls: 'btn-primary' },
+        ]);
+        if (go) setTimeout(syncPermissions, 0);
+      }
     } catch (err) {
       toast('儲存失敗:' + (err.message || err), 6000);
     } finally {
@@ -727,9 +760,9 @@
 
   // ---------- 提交週報 ----------
   // 透過 Apps Script(管理者身分)在生管部檔案「週報提交」工作表註記;每週二 10:00 由 Apps Script 清空
-  async function callSubmit(action) {
+  async function callSubmit(action, extra) {
     const token = await Drive.ensureToken();
-    const resp = await fetch(CFG.SUBMIT_URL, { method: 'POST', body: JSON.stringify({ action, token }) });
+    const resp = await fetch(CFG.SUBMIT_URL, { method: 'POST', body: JSON.stringify({ ...(extra || {}), action, token }) });
     const data = await resp.json().catch(() => ({ ok: false, error: `伺服器回應異常(${resp.status})` }));
     if (!data.ok) throw new Error(data.error || '提交失敗');
     return data;
@@ -1034,6 +1067,49 @@
       toast('催繳失敗:' + (err.message || err), 7000);
     }
   }
+
+  // ---------- 依「週報名單」同步檔案權限(管理者)----------
+  async function syncPermissions() {
+    busy('比對各部門檔案權限…');
+    let plan;
+    try {
+      plan = await callSubmit('permPlan');
+      if (!plan.items) throw new Error('Apps Script 尚未更新:請貼上新版程式並「管理部署作業 → 新版本」');
+    } catch (err) {
+      busy('');
+      return toast('檢查失敗:' + (err.message || err), 7000);
+    }
+    busy('');
+    const notes = (plan.notes || []).map((n) => '⚠️ ' + n).join('\n');
+    if (!plan.items.length) {
+      await confirmDialog('權限已一致', '各部門檔案的編輯者都與「週報名單」相符,不需變更。' + (notes ? '\n\n' + notes : ''),
+        [{ label: '關閉', value: true, cls: 'btn-primary' }]);
+      return;
+    }
+    const items = plan.items.map((it) => ({
+      key: it.key,
+      html: it.action === 'add'
+        ? `<b class="cl-add">＋ 新增編輯者</b> ${esc(it.dept)}:${esc(it.email)}`
+        : `<b class="cl-remove">－ 移除編輯者</b> ${esc(it.dept)}:${esc(it.email)}${it.name ? '(' + esc(it.name) + ')' : ''}`,
+    }));
+    const keys = await checklistDialog(`同步檔案權限(${plan.items.length} 項)`,
+      '請確認要執行的變更(取消勾選則不執行)。新增的人會收到 Google 共用通知信。' + (notes ? '\n' + notes : ''), items, '執行');
+    if (!keys || !keys.length) return toast(keys ? '未選擇任何項目' : '已取消');
+    busy('變更檔案權限…');
+    try {
+      const res = await callSubmit('permApply', { keys });
+      busy('');
+      const okN = res.results.filter((r) => r.ok).length;
+      const fails = res.results.filter((r) => !r.ok);
+      if (!fails.length) toast(`✅ 已完成 ${okN} 項權限變更`, 5000);
+      else await confirmDialog('部分變更失敗', `成功 ${okN} 項,失敗 ${fails.length} 項:\n` +
+        fails.map((f) => `${f.dept} ${f.email}:${f.error}`).join('\n'), [{ label: '關閉', value: true, cls: 'btn-primary' }]);
+    } catch (err) {
+      busy('');
+      toast('變更失敗:' + (err.message || err), 7000);
+    }
+  }
+  $('permBtn').onclick = syncPermissions;
 
   $('summaryBtn').onclick = runSummary;
   $('urgeBtn').onclick = runUrge;

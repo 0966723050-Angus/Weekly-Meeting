@@ -335,3 +335,12 @@ main { max-width: 860px; margin: 0 auto; padding: 12px 16px calc(96px + var(--sa
 .exclude-field:has(input:checked) { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, var(--surface)); }
 .card.excluded { opacity: .55; }
 .chip.chip-excluded { color: var(--danger); border-color: var(--danger); }
+
+/* 勾選清單對話框(同步權限) */
+.cl-intro { white-space: pre-line; margin-bottom: 10px; }
+.cl-list { display: flex; flex-direction: column; gap: 6px; text-align: left; }
+.cl-item { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); color: var(--text); cursor: pointer; }
+.cl-item input { width: 20px; height: 20px; flex: none; margin: 1px 0 0; accent-color: var(--primary); }
+.cl-item span { overflow-wrap: anywhere; font-size: 13.5px; }
+.cl-add { color: #15803d; }
+.cl-remove { color: var(--danger); }
