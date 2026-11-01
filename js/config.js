@@ -22,6 +22,8 @@ window.APP_CONFIG = {
     { name: '行動追蹤', file: '生管部', headerRow: 3 },
     { name: '專案主檔', file: '生管部', headerRow: 3 },
     { name: '週報提交', file: '生管部', headerRow: 1 },
+    // 催繳/提醒/提交的負責人名單(A 部門、B 負責人E-MAIL,多人以逗號分隔);由 Apps Script 讀取,存檔後立即生效
+    { name: '週報名單', file: '生管部', headerRow: 1 },
   ],
   FILE_PREFIX: 'weekly_meeting_template_',
 
