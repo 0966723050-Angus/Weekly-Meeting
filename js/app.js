@@ -113,6 +113,7 @@
       return;
     }
     $('summaryBar').hidden = !canSummarize();
+    $('urgeBtn').hidden = !CFG.SUBMIT_URL;
     if (canSummarize()) setTimeout(() => Summary.prefetchPdfAssets(), 3000); // 預先下載 PDF 字型
     const last = lsGet(LS_SHEET);
     const pick = [state.current, last, CFG.DEFAULT_SHEET, ...CFG.SHEETS.map((c) => c.name)]
@@ -444,7 +445,7 @@
       const flag = document.createElement('label');
       flag.className = 'exclude-field';
       flag.innerHTML = `<input type="checkbox" id="f_exclude"${isExcluded(m, rec) ? ' checked' : ''}>` +
-        `<span><b>${esc(CFG.EXCLUDE.title)}</b><small>勾選後,「彙整各部工作」會跳過這一列</small></span>`;
+        `<span><b>${esc(CFG.EXCLUDE.title)}</b><small>勾選後,「彙整」時會跳過這一列</small></span>`;
       box.appendChild(flag);
     }
     for (const col of m.columns) {
@@ -996,7 +997,46 @@
     }
   }
 
+  // ---------- 催繳(管理者)----------
+  // 經 Apps Script 查詢誰尚未按「週報提交」,確認後由 Apps Script 以管理者信箱寄出催繳信
+  async function runUrge() {
+    if (!CFG.SUBMIT_URL) return toast('尚未設定 Apps Script 網址');
+    busy('確認週報提交狀況…');
+    let data;
+    try {
+      data = await callSubmit('pending');
+      if (!data.results) throw new Error('Apps Script 尚未更新:請在 Apps Script 貼上新版程式並「管理部署作業 → 新版本」');
+    } catch (err) {
+      busy('');
+      return toast('查詢失敗:' + (err.message || err), 7000);
+    }
+    busy('');
+    const pending = data.results.filter((r) => !r.updated && !r.error);
+    const lines = data.results.map((r) => r.error ? `⚠️ ${r.dept}:檢查失敗(${r.error})`
+      : r.updated ? `✅ ${r.dept}:${r.reason}` : `❌ ${r.dept}:未提交`);
+    if (!pending.length) {
+      await confirmDialog('全部已提交', lines.join('\n'), [{ label: '關閉', value: true, cls: 'btn-primary' }]);
+      return;
+    }
+    const ok = await confirmDialog(`催繳週報(${pending.length} 個部門未提交)`,
+      lines.join('\n') + `\n\n將寄催繳信給:${pending.map((r) => r.dept).join('、')}`, [
+        { label: '取消', value: false },
+        { label: '寄出催繳', value: true, cls: 'btn-danger' },
+      ]);
+    if (!ok) return;
+    busy('寄出催繳信…');
+    try {
+      const res = await callSubmit('remind');
+      busy('');
+      toast(res.sent && res.sent.length ? `✅ 已寄催繳信:${res.sent.join('、')}` : '沒有需要催繳的部門', 6000);
+    } catch (err) {
+      busy('');
+      toast('催繳失敗:' + (err.message || err), 7000);
+    }
+  }
+
   $('summaryBtn').onclick = runSummary;
+  $('urgeBtn').onclick = runUrge;
   $('calibrateBtn').onclick = runCalibrate;
   $('exportPdfBtn').onclick = () => exportPdf();
 
