@@ -1226,6 +1226,53 @@
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForUpdate(); });
   window.addEventListener('focus', checkForUpdate);
 
+  // ---------- 資料自動更新 ----------
+  // 定時比對已下載檔案在雲端的版本號;有變更且本機沒有未儲存的修改 → 重新下載並重畫(保留分頁、篩選、捲動位置)。
+  // 本機有未儲存修改的檔案不覆蓋,只提示一次(儲存時由合併檢查處理)。
+  let refreshing = false;
+  const staleNotified = new Set();
+  async function refreshData() {
+    if (refreshing || state.source !== 'drive' || document.visibilityState !== 'visible') return;
+    // 編輯中、對話框/處理中畫面開著時先跳過
+    if (!$('editor').hidden || !$('confirmBox').hidden || !$('busy').hidden || !$('actionSheet').hidden) return;
+    refreshing = true;
+    let changed = [];
+    try {
+      for (const f of Object.values(state.files)) {
+        if (!f.fileId) continue;
+        let meta;
+        try { meta = await Drive.getMeta(f.fileId); } catch { continue; }
+        if (!f.meta || meta.version === f.meta.version) continue;
+        if (fileDirty(f)) {
+          if (!staleNotified.has(f.key + meta.version)) {
+            staleNotified.add(f.key + meta.version);
+            toast(`「${f.name}」雲端有新資料;你的修改儲存時會自動檢查合併`, 5000);
+          }
+          continue;
+        }
+        const { bytes, meta: m2 } = await Drive.download(f.fileId);
+        // 下載期間若開始編輯,放棄這次更新,下次再檢查
+        if (fileDirty(state.files[f.key] || f) || !$('editor').hidden) continue;
+        parseFile(f.key, bytes, { name: m2.name, meta: m2, fileId: f.fileId });
+        changed.push(f.name);
+      }
+      if (changed.length && curFile()) {
+        const y = window.scrollY;
+        renderTabs();
+        renderSheet(false);
+        updateHeader();
+        window.scrollTo(0, y);
+        toast('🔄 已更新為雲端最新資料', 2500);
+      }
+      if (changed.length) refreshSubmitState();
+    } finally {
+      refreshing = false;
+    }
+  }
+  setInterval(refreshData, CFG.AUTO_REFRESH_SECONDS * 1000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(refreshData, 500); });
+  window.addEventListener('focus', () => setTimeout(refreshData, 500));
+
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }

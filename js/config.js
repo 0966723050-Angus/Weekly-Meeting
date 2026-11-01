@@ -45,6 +45,8 @@ window.APP_CONFIG = {
   // 程式版本(部署時由 GitHub Actions 換成 commit 代碼);與網站上的 version.json 不同時強制重新載入
   APP_VERSION: '__BUILD_VERSION__',
   VERSION_CHECK_MINUTES: 5,
+  // 畫面開著時,每隔幾秒檢查雲端檔案是否被他人更新(例如週報提交),有更新就自動重新顯示
+  AUTO_REFRESH_SECONDS: 60,
 
   // 「不列入週報」:各部門工作表最後一欄之後新增此欄,核取的列寫入 V,彙整時跳過
   EXCLUDE: { title: '不列入週報', mark: 'V', sheets: ['生管部', '業務部', '機構設計', '電氣設計', '管理部', '太陽能追蹤'] },
