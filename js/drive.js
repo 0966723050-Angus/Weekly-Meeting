@@ -6,20 +6,104 @@
   const LS_HINT = 'wm_login_hint';
   const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
+  function lsGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+  function lsSet(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} }
+
+  const LS_SESSION = 'wm_session'; // 保持登入代碼(由 Apps Script 換發權杖)
+  const LS_TOKEN = 'wm_token';     // 目前的存取權杖與到期時間(1 小時內重開不必再換)
+
   let tokenClient = null;
   let accessToken = null;
   let tokenExpiry = 0;
   let lastDebug = null;
+  const LS_SESS_OK = 'wm_sessions_ok';
+  // Apps Script 是否已設定好保持登入(先沿用上次得知的結果,背景再確認)
+  let sessionsSupported = lsGet(LS_SESS_OK) === '1';
 
-  function lsGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
-  function lsSet(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} }
+  function setToken(tok, expiresIn) {
+    accessToken = tok;
+    tokenExpiry = Date.now() + (Number(expiresIn) || 3600) * 1000 - 60000;
+    lsSet(LS_TOKEN, JSON.stringify({ t: tok, e: tokenExpiry }));
+    return tok;
+  }
 
+  // 開啟時先用上次存下、尚未過期的權杖
+  try {
+    const saved = JSON.parse(lsGet(LS_TOKEN) || 'null');
+    if (saved && saved.t && Date.now() < saved.e) { accessToken = saved.t; tokenExpiry = saved.e; }
+  } catch {}
+
+  async function authCall(body) {
+    const resp = await fetch(CFG.SUBMIT_URL, { method: 'POST', body: JSON.stringify(body) });
+    return resp.json();
+  }
+
+  // 背景詢問 Apps Script 是否支援保持登入(登入按鈕按下時才不必等)
+  if (CFG.SUBMIT_URL) {
+    authCall({ action: 'authInfo' })
+      .then((d) => { sessionsSupported = !!(d && d.ok && d.sessions); lsSet(LS_SESS_OK, sessionsSupported ? '1' : null); })
+      .catch(() => {});
+  }
+
+  function hasSession() { return !!lsGet(LS_SESSION); }
+
+  // 用保持登入代碼換新權杖;失敗回傳 null(代碼失效時一併清除)
+  let refreshing = null;
+  function refreshFromSession() {
+    const sid = lsGet(LS_SESSION);
+    if (!sid || !CFG.SUBMIT_URL) return Promise.resolve(null);
+    if (!refreshing) {
+      refreshing = authCall({ action: 'refresh', sid })
+        .then((d) => {
+          if (d && d.ok && d.access_token) return setToken(d.access_token, d.expires_in);
+          if (d && d.error === 'SESSION_EXPIRED') lsSet(LS_SESSION, null);
+          return null;
+        })
+        .catch(() => null)
+        .finally(() => { refreshing = null; });
+    }
+    return refreshing;
+  }
+
+  function gisReady() {
+    if (!window.google || !google.accounts || !google.accounts.oauth2) throw new Error('Google 登入元件尚未載入,請確認網路後重試');
+  }
+
+  // 互動式登入(需在使用者點擊中呼叫):支援保持登入時用授權碼流程,否則用一次性權杖
   function requestToken(prompt) {
+    return sessionsSupported ? codeLogin() : tokenLogin(prompt);
+  }
+
+  function codeLogin() {
     return new Promise((resolve, reject) => {
-      if (!window.google || !google.accounts || !google.accounts.oauth2) {
-        reject(new Error('Google 登入元件尚未載入,請確認網路後重試'));
-        return;
-      }
+      gisReady();
+      const hint = lsGet(LS_HINT);
+      const client = google.accounts.oauth2.initCodeClient({
+        client_id: CFG.GOOGLE_CLIENT_ID,
+        scope: CFG.DRIVE_SCOPE,
+        ux_mode: 'popup',
+        // consent:確保拿到 refresh token(每台裝置只需第一次登入時同意)
+        prompt: hint ? 'consent' : 'select_account consent',
+        ...(hint ? { login_hint: hint } : {}),
+        callback: async (resp) => {
+          if (resp.error) { reject(new Error(resp.error_description || resp.error)); return; }
+          try {
+            const d = await authCall({ action: 'login', code: resp.code });
+            if (!d.ok) throw new Error(d.error || '登入失敗');
+            if (d.sid) lsSet(LS_SESSION, d.sid);
+            if (d.email) lsSet(LS_HINT, d.email);
+            resolve(setToken(d.access_token, d.expires_in));
+          } catch (err) { reject(err); }
+        },
+        error_callback: (err) => reject(new Error(err && err.type === 'popup_closed' ? '已關閉登入視窗' : '登入失敗')),
+      });
+      client.requestCode();
+    });
+  }
+
+  function tokenLogin(prompt) {
+    return new Promise((resolve, reject) => {
+      gisReady();
       if (!tokenClient) {
         tokenClient = google.accounts.oauth2.initTokenClient({
           client_id: CFG.GOOGLE_CLIENT_ID,
@@ -29,9 +113,7 @@
       }
       tokenClient.callback = (resp) => {
         if (resp.error) { reject(new Error(resp.error_description || resp.error)); return; }
-        accessToken = resp.access_token;
-        tokenExpiry = Date.now() + (Number(resp.expires_in) || 3600) * 1000 - 60000;
-        resolve(accessToken);
+        resolve(setToken(resp.access_token, resp.expires_in));
       };
       tokenClient.error_callback = (err) => reject(new Error(err && err.type === 'popup_closed' ? '已關閉登入視窗' : '登入失敗'));
       const opts = { prompt: prompt ?? '' };
@@ -41,9 +123,21 @@
     });
   }
 
+  // 取得可用權杖:現有 → 保持登入換發 → 互動式登入
+  // 沒有保持登入代碼時同步開登入視窗(避免被瀏覽器當成非點擊彈窗擋掉)
   async function ensureToken() {
     if (accessToken && Date.now() < tokenExpiry) return accessToken;
+    if (hasSession()) {
+      const t = await refreshFromSession();
+      if (t) return t;
+    }
     return requestToken(accessToken ? '' : undefined);
+  }
+
+  // 不開登入視窗,只嘗試恢復登入(App 開啟時自動使用);成功回傳 true
+  async function resume() {
+    if (accessToken && Date.now() < tokenExpiry) return true;
+    return !!(await refreshFromSession());
   }
 
   function isSignedIn() { return !!accessToken && Date.now() < tokenExpiry; }
@@ -53,7 +147,8 @@
     const resp = await fetch(url, { ...opts, headers: { ...(opts.headers || {}), Authorization: 'Bearer ' + accessToken } });
     if (resp.status === 401 && retry) {
       accessToken = null;
-      await requestToken('');
+      tokenExpiry = 0;
+      if (!(await refreshFromSession())) await requestToken('');
       return api(url, opts, false);
     }
     return resp;
@@ -171,15 +266,23 @@
     return user;
   }
 
+  // 登出:刪除此裝置的保持登入紀錄(不撤銷整個授權,其他裝置維持登入)
   function signOut() {
-    if (accessToken && window.google && google.accounts) google.accounts.oauth2.revoke(accessToken, () => {});
+    const sid = lsGet(LS_SESSION);
+    if (sid && CFG.SUBMIT_URL) {
+      try { navigator.sendBeacon(CFG.SUBMIT_URL, JSON.stringify({ action: 'logout', sid })); } catch {}
+    } else if (accessToken && window.google && google.accounts) {
+      google.accounts.oauth2.revoke(accessToken, () => {});
+    }
     accessToken = null;
     tokenExpiry = 0;
+    lsSet(LS_SESSION, null);
+    lsSet(LS_TOKEN, null);
     lsSet(LS_HINT, null);
   }
 
   window.Drive = {
-    requestToken, ensureToken, isSignedIn, listWeeklyFiles, getMeta, download, upload,
+    requestToken, ensureToken, resume, hasSession, isSignedIn, listWeeklyFiles, getMeta, download, upload,
     findByName, getParents, saveByName, downloadRaw,
     whoAmI, signOut, debugInfo: () => lastDebug,
   };

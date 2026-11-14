@@ -179,10 +179,17 @@
     return roles;
   }
 
-  async function signInAndLoad() {
+  // auto = App 開啟時自動恢復登入(不開登入視窗;恢復不了就停在登入畫面)
+  async function signInAndLoad(auto) {
     try {
       busy('登入 Google…');
-      await Drive.ensureToken();
+      if (auto === true) {
+        if (!(await Drive.resume())) {
+          busy('');
+          if (Drive.hasSession()) toast('無法自動登入,請按「使用 Google 帳號登入」', 5000);
+          return;
+        }
+      } else await Drive.ensureToken();
       state.user = await Drive.whoAmI().catch(() => null);
       busy('尋找週報檔案…');
       const access = await Drive.listWeeklyFiles();
@@ -1276,6 +1283,9 @@
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
+
+  // 上次沒有登出 → 直接進入
+  if (Drive.hasSession() || Drive.isSignedIn()) signInAndLoad(true);
 
   // 測試用掛勾(僅供自動化驗證)
   window.__wm = { state, parseFile, showSheets, buildBytes, Workbook };

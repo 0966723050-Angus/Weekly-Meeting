@@ -99,6 +99,11 @@ App 開啟時、切回前景時、每 5 分鐘比對版本,不同就自動重新
 權限範圍 `drive`:程式直接以檔名找出週會檔案,實際可開的檔案由雲端硬碟共用設定決定;程式只讀寫 `weekly_meeting_template_*.xlsx`。
 不使用 Google Picker,因此也不需要 API 金鑰(iPhone Safari 會擋住 Picker 的 Google 登入)。
 
+**保持登入**:沒有自己登出,下次開啟 App 直接進入。登入一次後由 Apps Script(`SUBMIT_URL`)保管 refresh token,
+裝置只存隨機登入代碼(localStorage `wm_session`),開啟時換新權杖;權杖 1 小時內重開不需再換。
+需在 Apps Script 指令碼屬性設定 `CLIENT_SECRET`(見 Weekly-Meeting-Reminder 的 README),未設定時維持每次登入。
+「登出」只刪除這台裝置的登入紀錄,不影響其他裝置。
+
 ## 本機測試
 
 ```bash
