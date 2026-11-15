@@ -286,7 +286,7 @@ main { max-width: 860px; margin: 0 auto; padding: 12px 16px calc(96px + var(--sa
 
 
 /* 彙整按鈕列 */
-.summary-bar { display: flex; gap: 8px; margin-bottom: 8px; }
+.summary-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 .summary-bar .btn { flex: 1; padding: 0 8px; white-space: nowrap; }
 
 /* 週次:點擊開日曆 */

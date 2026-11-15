@@ -136,6 +136,8 @@
     }
     $('summaryBar').hidden = !canSummarize();
     $('urgeBtn').hidden = !CFG.SUBMIT_URL;
+    $('reportBtn').hidden = !CFG.SUBMIT_URL;
+    if (canSummarize() && CFG.SUBMIT_URL) refreshAgent();
     if (canSummarize()) setTimeout(() => Summary.prefetchPdfAssets(), 3000); // 預先下載 PDF 字型
     const last = lsGet(LS_SHEET);
     const pick = [state.current, last, CFG.DEFAULT_SHEET, ...CFG.SHEETS.map((c) => c.name)]
@@ -921,6 +923,7 @@
   // pdfBytes 已有時直接寫;否則從雲端下載最新的彙整 PDF
   async function exportPdf(pdfBytes) {
     if (state.source !== 'drive') return toast('請先登入');
+    if (!canWriteFolder() && CFG.SUBMIT_URL) return exportViaPc();
     let dir = null;
     try {
       dir = await getExportDir();
@@ -944,6 +947,100 @@
       busy('');
     }
   }
+
+  // ---------- 電腦代理程式:手機匯出到電腦資料夾、製作週報 ----------
+  // App 把請求交給 Apps Script;電腦上的 wm_agent.ps1(每分鐘)取走雲端的彙整 PDF 存到 C:\ATK\週會\彙整\本週會議重點.pdf,
+  // 製作週報則由電腦上的 Claude 排程任務取走請求、執行 weekly-report skill 後回報。
+  const agentState = { report: null, watchExport: null };
+  const pcExportPath = () => CFG.EXPORT_DIR_HINT + '\\' + CFG.EXPORT_NAME + '.pdf';
+
+  async function exportViaPc() {
+    try {
+      busy('找出雲端的彙整 PDF…');
+      const f = await Drive.findByName(CFG.SUMMARY_NAME + '.pdf');
+      if (!f) { busy(''); return toast('雲端硬碟還沒有彙整 PDF,請先按「彙整」', 4000); }
+      busy('通知電腦存檔…');
+      const st = await callSubmit('exportRequest', { fileId: f.id, name: f.name });
+      busy('');
+      agentState.watchExport = st.exportPending && st.exportPending.id;
+      toast(`已送出,電腦約 1 分鐘內會存到「${pcExportPath()}」`, 6000);
+      watchExport(Date.now());
+    } catch (err) {
+      busy('');
+      toast('匯出失敗:' + (err.message || err), 6000);
+    }
+  }
+
+  // 每 10 秒確認電腦是否已存檔,最多 3 分鐘
+  async function watchExport(start) {
+    if (!agentState.watchExport) return;
+    await new Promise((r) => setTimeout(r, 10000));
+    let st;
+    try { st = await callSubmit('agentStatus'); } catch { st = null; }
+    if (st && (!st.exportPending || st.exportPending.id !== agentState.watchExport)) {
+      agentState.watchExport = null;
+      const d = st.exportDone;
+      if (d && d.error) return toast('電腦存檔失敗:' + d.error, 7000);
+      return toast(`✅ 電腦已存檔:${(d && d.path) || CFG.EXPORT_NAME + '.pdf'}`, 6000);
+    }
+    if (Date.now() - start > 180000) {
+      agentState.watchExport = null;
+      return toast(`電腦尚未取件${st && st.agentSeen ? `(電腦最後連線 ${st.agentSeen})` : ''};電腦開機後會自動存檔`, 8000);
+    }
+    watchExport(start);
+  }
+
+  const REPORT_LABEL = { queued: '⏳ 週報排隊中', running: '⚙️ 週報製作中' };
+  function showReportState(rep) {
+    const prev = agentState.report;
+    agentState.report = rep || null;
+    const btn = $('reportBtn');
+    const busyNow = rep && REPORT_LABEL[rep.status];
+    btn.textContent = busyNow || '📝 製作週報';
+    // 從「排隊/製作中」變成完成或失敗 → 通知結果
+    if (prev && rep && prev.id === rep.id && REPORT_LABEL[prev.status] && !busyNow) {
+      confirmDialog(rep.status === 'done' ? '週報製作完成' : '週報製作失敗', rep.msg || (rep.status === 'done' ? '已完成' : '未提供原因'),
+        [{ label: '關閉', value: true, cls: 'btn-primary' }]);
+    }
+  }
+
+  async function refreshAgent() {
+    try { showReportState((await callSubmit('agentStatus')).report); } catch { /* 取不到時維持原狀 */ }
+  }
+
+  async function requestReport() {
+    if (!canSummarize()) return toast('需要可存取全部部門檔案的帳號才能製作週報');
+    const rep = agentState.report;
+    if (rep && REPORT_LABEL[rep.status]) {
+      return confirmDialog('週報' + (rep.status === 'queued' ? '排隊中' : '製作中'),
+        `${rep.time} 送出${rep.status === 'running' ? `,${rep.updated} 開始製作` : ',等待電腦取件(每 10 分鐘檢查一次)'}。完成後這裡會通知。`,
+        [{ label: '關閉', value: true, cls: 'btn-primary' }]);
+    }
+    let st = null;
+    try { busy('查詢電腦狀態…'); st = await callSubmit('agentStatus'); } catch { /* 略 */ } finally { busy(''); }
+    const lines = [`電腦會用「${pcExportPath()}」製作週報(Claude 排程每 10 分鐘檢查一次請求)。`];
+    if (st && st.exportPending) lines.push('有一份剛匯出的 PDF 尚未存到電腦,會先存檔再製作。');
+    else if (st && st.exportDone && st.exportDone.time) lines.push(`電腦最近一次存檔:${st.exportDone.time}。`);
+    lines.push('若 PDF 不是最新的,請先按「彙整」再「匯出」。');
+    if (st && st.agentSeen) lines.push(`電腦最後連線:${st.agentSeen}`);
+    const go = await confirmDialog('製作週報?', lines.join('\n'), [
+      { label: '取消', value: false },
+      { label: '送出', value: true, cls: 'btn-primary' },
+    ]);
+    if (!go) return;
+    try {
+      busy('送出請求…');
+      const res = await callSubmit('reportRequest');
+      busy('');
+      agentState.report = null;
+      showReportState(res.report);
+      toast('已送出,電腦取件後開始製作週報', 5000);
+    } catch (err) {
+      busy('');
+      toast('送出失敗:' + (err.message || err), 6000);
+    }
+  }
+  $('reportBtn').onclick = requestReport;
 
   async function changeExportDir() {
     if (!canWriteFolder()) return toast('此瀏覽器不支援指定資料夾,匯出時會直接下載');
@@ -1240,6 +1337,7 @@
   const staleNotified = new Set();
   async function refreshData() {
     if (refreshing || state.source !== 'drive' || document.visibilityState !== 'visible') return;
+    if (agentState.report && REPORT_LABEL[agentState.report.status]) refreshAgent();
     // 編輯中、對話框/處理中畫面開著時先跳過
     if (!$('editor').hidden || !$('confirmBox').hidden || !$('busy').hidden || !$('actionSheet').hidden) return;
     refreshing = true;
